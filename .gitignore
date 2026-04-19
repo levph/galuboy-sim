@@ -1,0 +1,23 @@
+# MATLAB auto-saves
+*.asv
+
+# MATLAB compiled
+*.mex*
+*.p
+
+# Simulation output data (large binary)
+*.mat
+*.csv
+
+# Resources / terrain data (too large for repo)
+resources/
+*.osm
+*.dt1
+*.dt2
+srtm_*/
+
+# macOS
+.DS_Store
+
+# MATLAB HTML reports
+html/
