@@ -133,4 +133,7 @@ function config = buildConfig()
     config.hist.n_bins              = 50;
     config.hist.min_samples_per_bin = 1;
 
+    % ---- Availability CCDF -----------------------------------------------
+    config.ccdf.min_samples = 20;   % mask tail bins with fewer samples
+
 end
