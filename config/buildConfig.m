@@ -1,85 +1,97 @@
 function config = buildConfig()
-%BUILDCONFIG  Return the default simulation configuration struct.
+%BUILDCONFIG  Default simulation configuration for galuboy-sim v4.
 %
 %   config = buildConfig()
 %
-%   Edit the values here to change simulation parameters.
-%   Override individual fields after calling buildConfig() rather than
-%   editing this file for one-off experiments.
+%   Returns a single struct with grouped subfields. Override individual
+%   fields after calling buildConfig() rather than editing this file for
+%   one-off experiments.
 %
-%   Version: 3.0
+%   Top-level fields:
+%     tx           Aerial transmitter parameters
+%     rx.infantry  Ground RX type 1 (handheld)
+%     rx.vehicular Ground RX type 2 (roof whip)
+%     propagation  Propagation model + terrain options
+%     flight       Trajectory and rotation sweep
+%     analysis     Threshold, percentile, fade margin
+%     regions      Struct array - one entry per map region to simulate
+%     parallel     Parpool toggle and worker count
+%     io           Output paths
+%     viz          Visualization toggles
+%     hist         Range-histogram parameters
+%
+%   Antenna patterns are loaded from resources/antennas/<name>.csv at
+%   runtime. RX height defaults: 1.5 m infantry / 2.5 m vehicular.
 
     config = struct();
 
-    % ---- Geographic boundaries (read from OSM, or set manually) ----------
-    config.viz.osm_path = '../resources/yarka.osm';  % map.osm | yarka.osm | north_25km2.osm
-    % config.geo.lonlim and config.geo.latlim are populated by run_galuboy.m
-    % from osmReadBounds(); they are left empty here as sentinels.
-    config.geo.lonlim = [];
-    config.geo.latlim = [];
+    % ---- Transmitter -----------------------------------------------------
+    config.tx.frequency_hz     = 4e9;        % Hz
+    config.tx.power_dbm        = 47;         % dBm
+    config.tx.altitude_m       = 1500;       % m AGL
+    config.tx.antenna_name     = 'tx_omni';  % CSV stem under resources/antennas/
+    config.tx.boresight_az_rad = 0;          % azimuth (rad)
+    config.tx.boresight_el_rad = -pi/2;      % elevation (rad); -pi/2 = nadir
 
-    % ---- Transmitter parameters ------------------------------------------
-    config.tx.frequency_hz  = 4e9;    % Hz
-    config.tx.power_dbm     = 47;     % dBm
-    config.tx.altitude_m    = 1500;   % m AGL
+    % ---- Receivers (two device types per rotation) -----------------------
+    config.rx.placement_radius_km       = 5;     % RXs sampled within this radius of centroid
+    config.rx.infantry.count            = 40;
+    config.rx.infantry.height_m         = 1.5;
+    config.rx.infantry.antenna_name     = 'rx_infantry_omni';
+    config.rx.infantry.boresight_az_rad = 0;
+    config.rx.infantry.boresight_el_rad = pi/2;   % zenith
 
-    % ---- Propagation model -----------------------------------------------
-    config.prop.model                 = 'longley-rice';
-    config.prop.time_variability      = 0.9;
-    config.prop.situation_variability = 0.9;
-    config.prop.bandwidth_hz          = 25e3;  % Hz
+    config.rx.vehicular.count            = 20;
+    config.rx.vehicular.height_m         = 2.5;
+    config.rx.vehicular.antenna_name     = 'rx_vehicular_dipole';
+    config.rx.vehicular.boresight_az_rad = 0;
+    config.rx.vehicular.boresight_el_rad = pi/2;
 
-    % Fade margin
-    config.prop.fade_margin_type      = 'moderate';  % minimal|moderate|conservative|urban|custom
-    config.prop.fade_margin_custom_db = 10;
-    config.prop.fade_margin_db        = resolveFadeMargin(config.prop.fade_margin_type, ...
-                                                           config.prop.fade_margin_custom_db);
+    % ---- Propagation -----------------------------------------------------
+    config.propagation.model                 = 'longley-rice';
+    config.propagation.time_variability      = 0.9;
+    config.propagation.situation_variability = 0.9;
+    config.propagation.bandwidth_hz          = 25e3;     % Hz
+    config.propagation.terrain_name          = 'galuboy_terrain';
+    config.propagation.use_terrain           = true;     % false -> default GMTED2010
 
-    % ---- Simulation parameters -------------------------------------------
-    config.sim.n_rx             = 60;    % random ground receivers per rotation
-    config.sim.num_flight_steps = 100;   % trajectory samples per rotation
+    % ---- Flight (trajectory + rotation sweep) ----------------------------
+    config.flight.num_flight_steps     = 100;    % samples along trajectory
+    config.flight.step_degrees         = 10;     % rotation step in deg
+    config.flight.num_rotations        = floor(180 / config.flight.step_degrees);
+    config.flight.lemniscate_scale_deg = 0.005;  % fallback if length_m is empty
+    config.flight.lemniscate_length_m  = 1000;   % full E-W extent of figure-8 (m); [] -> use scale_deg
+    config.flight.max_tilt_deg         = 23;     % peak bank angle in turns (deg)
 
-    % Trajectory rotation sweep [0, 180) deg
-    config.sim.step_degrees  = 10;   % degrees per rotation step
-    config.sim.num_rotations = [];   % [] → auto-derive as floor(180 / step_degrees)
+    % ---- Analysis --------------------------------------------------------
+    config.analysis.threshold_dbm        = -95;          % MDS in dBm
+    config.analysis.percentile           = 99;           % availability percentile
+    config.analysis.fade_margin_db       = 10;           % user-supplied fade margin (dB)
 
-    if isempty(config.sim.num_rotations)
-        config.sim.num_rotations = floor(180 / config.sim.step_degrees);
-    end
+    % ---- Regions (struct array; default = single Yarka entry) ------------
+    %   name            short ident used in logs and result files
+    %   osm_path        absolute or repo-relative .osm file
+    %   latlim_override [lo, hi] in degrees; [] means read from OSM
+    %   lonlim_override [lo, hi] in degrees; [] means read from OSM
+    config.regions = struct( ...
+        'name',            'yarka', ...
+        'osm_path',        'resources/osm/yarka.osm', ...
+        'latlim_override', [], ...
+        'lonlim_override', []);
 
-    % ---- Analysis parameters ---------------------------------------------
-    config.sim.availability_threshold_dbm = -95;   % MDS (dBm)
-    config.link.percentile                = 99;    % X-th percentile for availability decision
-
-    % ---- Group / Monte Carlo ---------------------------------------------
-    config.group.size                = 80;          % battalion size
-    config.group.antenna_distribution = [1/3, 2/3]; % fraction per antenna type
-    config.group.num_trials          = 1e2;         % Monte Carlo trials
-
-    % ---- Histogram (range analysis) --------------------------------------
-    config.hist.n_bins             = 50;
-    config.hist.min_samples_per_bin = 1;
-
-    % ---- Flow control ----------------------------------------------------
-    % Set run_analysis = false to stop after Phase 1 (data collection).
-    config.sim.run_analysis = true;
+    % ---- Parallel pool ---------------------------------------------------
+    config.parallel.enabled     = true;
+    config.parallel.num_workers = [];   % [] = MATLAB default
 
     % ---- I/O -------------------------------------------------------------
-    config.io.results_file = 'simulation_results.mat';
+    config.io.results_dir       = 'results';
+    config.io.terrain_cache_dir = 'terrain_cache';
 
-end
+    % ---- Visualization ---------------------------------------------------
+    config.viz.show_siteviewer    = false;   % true -> 3D map + buildings overlay
 
-% -------------------------------------------------------------------------
-function fm_db = resolveFadeMargin(fade_type, custom_db)
-    switch lower(fade_type)
-        case 'minimal',       fm_db = 3;
-        case 'moderate',      fm_db = 10;
-        case 'conservative',  fm_db = 15;
-        case 'urban',         fm_db = 20;
-        case 'custom',        fm_db = custom_db;
-        otherwise
-            error('buildConfig:unknownFadeMarginType', ...
-                  'Unknown fade_margin_type: ''%s''. Use minimal|moderate|conservative|urban|custom.', ...
-                  fade_type);
-    end
+    % ---- Range histogram -------------------------------------------------
+    config.hist.n_bins              = 50;
+    config.hist.min_samples_per_bin = 1;
+
 end
