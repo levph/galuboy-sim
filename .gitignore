@@ -7,17 +7,35 @@
 
 # Simulation output data (large binary)
 *.mat
-*.csv
+results/
 
-# Resources / terrain data (too large for repo)
-resources/
-*.osm
+# Runtime terrain tile cache (rebuilt from source tiles)
+terrain_cache/
+
+# Large terrain / OSM source files (user supplies locally)
 *.dt1
 *.dt2
+*.tif
+*.tiff
+*.hgt
+*.osm
 srtm_*/
+
+# CSVs in general are gitignored, but commit the example antenna patterns
+*.csv
+!resources/antennas/*.csv
 
 # macOS
 .DS_Store
 
 # MATLAB HTML reports
 html/
+
+# Tests scratch
+tests/_*
+
+# Embedded worktrees / Claude Code internal
+.claude/
+
+# Generated HTML exports (user-initiated, not source)
+summary*.html

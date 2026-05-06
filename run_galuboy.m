@@ -1,127 +1,60 @@
-%% run_galuboy.m — Air-to-Ground Path Loss Simulation  v3.0
+%% run_galuboy.m -- Air-to-Ground Path Loss Simulation  v4.0
 %
-% Simulates signal propagation from an aerial transmitter flying a rotated
-% figure-8 (Lemniscate of Bernoulli) trajectory to randomly placed ground
-% receivers, then optionally performs link-budget and availability analysis.
+% Thin headless driver. Builds the default config, runs the scenario
+% across all configured regions, and renders the two summary plots.
 %
-% PHASE 1 — Data collection
-%   Outer loop: rotates figure-8 from 0 to ~180° in step_degrees increments.
-%   Inner loop: flies the full trajectory; records path loss, azimuth, and
-%               elevation for every (rotation, step, receiver) triplet.
-%   Result: raw_data struct saved to config.io.results_file (.mat).
+% PIPELINE
+%   1. config = buildConfig()
+%   2. results = runScenario(cfg, progress_cb)   % terrain register + per-rotation
+%                                                % parfor + reduce; saves .mat
+%   3. plotRangeHistogram(results, cfg)
+%   4. plotAvailabilityMap(results, cfg)
 %
-% PHASE 2 — Analysis  (skipped when config.sim.run_analysis = false)
-%   Applies link budget (TX/RX antenna gains + fade margin) to compute P_rx,
-%   evaluates percentile-based availability, and plots a range histogram.
-%
-% Usage:
-%   config = buildConfig();                  % load defaults
-%   config.sim.run_analysis = false;         % Phase 1 only (optional)
-%   run_galuboy                              % execute
+% Override config fields between (1) and (2) for one-off experiments:
+%   cfg = buildConfig();
+%   cfg.flight.num_rotations = 4;
+%   cfg.propagation.use_terrain = false;     % skip DT2 - default GMTED
+%   results = runScenario(cfg, @defaultProgressPrinter);
 %
 % Authors: Tomer Antebi & Lev Panov
-% Version: 3.0
-% Date:    2026-04
+% Version: 4.0
+% Date:    2026-05
 
-%% ========================================================================
-%  SETUP
-%% ========================================================================
-addpath(genpath(fileparts(mfilename('fullpath'))));
+repo_root = fileparts(mfilename('fullpath'));
+addpath(fullfile(repo_root, 'utils'));   % bootstrap so addProjectPaths is visible
+addProjectPaths(repo_root);
 
-config = buildConfig();
+cfg = buildConfig();
 
-% Resolve geographic bounds from OSM file
-[config.geo.lonlim, config.geo.latlim, ~] = osmReadBounds(config.viz.osm_path);
+t0 = tic;
+results = runScenario(cfg, @defaultProgressPrinter);
+fprintf('\nScenario complete in %.1f s\n', toc(t0));
 
-% Antenna patterns (shared by both phases)
-[tx_gain_func, rx_gain_func, n_rx_antenna_types] = setupAntennaPatterns();
-
-% Propagation model
-pm = propagationModel(config.prop.model, ...
-    'TimeVariabilityTolerance',      config.prop.time_variability, ...
-    'SituationVariabilityTolerance', config.prop.situation_variability);
-
-% Site viewer
-viewer = siteviewer('Buildings', config.viz.osm_path, ...
-                    'Basemap',   'openstreetmap');
-
-% Transmitter template (position updated each step)
-tx = txsite('Name',                 'Aerial_Tx', ...
-            'Latitude',             0, ...
-            'Longitude',            0, ...
-            'AntennaHeight',        config.tx.altitude_m, ...
-            'TransmitterFrequency', config.tx.frequency_hz, ...
-            'TransmitterPower',     10^((config.tx.power_dbm - 30) / 10));
-
-%% ========================================================================
-%  PHASE 1 — SIMULATION
-%% ========================================================================
-M  = config.sim.num_rotations;
-Nf = config.sim.num_flight_steps;
-N  = config.sim.n_rx;
-
-fprintf('=== Phase 1: Simulation ===\n');
-fprintf('Rotations       : %d  (step = %.1f deg, range = [0, %.1f) deg)\n', ...
-        M, config.sim.step_degrees, M * config.sim.step_degrees);
-fprintf('Flight steps    : %d\n', Nf);
-fprintf('Receivers/rot.  : %d\n', N);
-fprintf('Propagation     : %s\n\n', config.prop.model);
-
-% Pre-allocate
-raw_data.path_loss_db          = zeros(M, Nf, N, 'single');
-raw_data.azimuth_rad           = zeros(M, Nf, N, 'single');
-raw_data.elevation_rad         = zeros(M, Nf, N, 'single');
-raw_data.dists_from_centroid_m = zeros(M, N,  'single');
-raw_data.locations             = zeros(M, N, 2, 'single');
-
-for m = 1:M
-    rotation_deg = (m - 1) * config.sim.step_degrees;
-    fprintf('--- Rotation %d/%d  (%.1f deg) ---\n', m, M, rotation_deg);
-
-    [flight_lons, flight_lats] = generateTrajectory(config, rotation_deg);
-    [rx_array,    rx_points]   = placeReceivers(N, config);
-
-    raw_data.locations(m, :, :)          = rx_points;
-    raw_data.dists_from_centroid_m(m, :) = distanceFromCentroid( ...
-        config.geo.lonlim, config.geo.latlim, rx_points);
-
-    slice = runFlightLoop(tx, rx_array, pm, flight_lons, flight_lats, config);
-
-    raw_data.path_loss_db(m, :, :)   = slice.path_loss_db;
-    raw_data.azimuth_rad(m, :, :)    = slice.azimuth_rad;
-    raw_data.elevation_rad(m, :, :)  = slice.elevation_rad;
+% --- Summary printout -----------------------------------------------------
+for r = 1:numel(results)
+    avail = results(r).available;
+    n_inf = cfg.rx.infantry.count;
+    n_veh = cfg.rx.vehicular.count;
+    if n_inf > 0 && n_veh > 0
+        inf_avail = mean(reshape(avail(:, 1:n_inf), [], 1));
+        veh_avail = mean(reshape(avail(:, n_inf + (1:n_veh)), [], 1));
+        fprintf('  %-12s overall %.1f%%  (inf %.1f%%, veh %.1f%%)  M=%d, n_rx=%d\n', ...
+            results(r).region.name, 100*mean(avail(:)), ...
+            100*inf_avail, 100*veh_avail, ...
+            size(avail, 1), size(avail, 2));
+    else
+        fprintf('  %-12s overall %.1f%%  M=%d, n_rx=%d\n', ...
+            results(r).region.name, 100*mean(avail(:)), ...
+            size(avail, 1), size(avail, 2));
+    end
 end
 
-fprintf('\n=== Phase 1 Complete ===\n');
+% --- Plots ----------------------------------------------------------------
+plotRangeHistogram(results, cfg);
+plotAvailabilityMap(results, cfg);
 
-save(config.io.results_file, 'raw_data', 'config');
-fprintf('Results saved → %s\n\n', config.io.results_file);
 
-% --- Optional exit point --------------------------------------------------
-if ~config.sim.run_analysis
-    fprintf('config.sim.run_analysis = false — stopping after Phase 1.\n');
-    return;
+% =========================================================================
+function defaultProgressPrinter(stage, region_idx, n_regions, rot_idx, n_rots, msg)
+    fprintf('%s\n', plotProgress(stage, region_idx, n_regions, rot_idx, n_rots, msg));
 end
-
-%% ========================================================================
-%  PHASE 2 — ANALYSIS
-%% ========================================================================
-fprintf('=== Phase 2: Analysis ===\n');
-fprintf('Fade margin     : %.1f dB  (%s)\n', config.prop.fade_margin_db, config.prop.fade_margin_type);
-fprintf('Threshold (MDS) : %.1f dBm\n', config.sim.availability_threshold_dbm);
-fprintf('Percentile      : %d-th\n\n', config.link.percentile);
-
-prx = computeLinkBudget(raw_data, tx_gain_func, rx_gain_func, ...
-                        n_rx_antenna_types, config);
-
-available = computeAvailability(prx, config);
-
-fprintf('Overall availability: %.1f %%  (%d / %d station×rotation pairs)\n\n', ...
-        100 * mean(available(:)), sum(available(:)), numel(available));
-
-all_distances = raw_data.dists_from_centroid_m(:);
-all_available = available(:);
-
-plotRangeHistogram(all_distances, all_available, config);
-
-fprintf('=== Analysis Complete ===\n');

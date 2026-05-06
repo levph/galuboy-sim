@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    margin: 0;
+    padding: 12px;
+    background: #1f2937;
+    color: #e5e7eb;
+    font-size: 13px;
+  }
+  .stage {
+    text-transform: uppercase;
+    font-weight: 600;
+    color: #93c5fd;
+    margin-right: 6px;
+  }
+  .bars { margin-bottom: 10px; }
+  .bar-row { margin-bottom: 6px; }
+  .bar-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2px;
+    color: #9ca3af;
+  }
+  .bar-track {
+    background: #374151;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    background: linear-gradient(90deg, #34d399, #60a5fa);
+    height: 100%;
+    width: 0%;
+    transition: width 0.18s ease-out;
+  }
+  #log {
+    max-height: 220px;
+    overflow-y: auto;
+    background: #111827;
+    border: 1px solid #374151;
+    border-radius: 4px;
+    padding: 8px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .log-entry { white-space: pre-wrap; }
+  .log-entry.setup    { color: #fbbf24; }
+  .log-entry.region   { color: #93c5fd; }
+  .log-entry.rotation { color: #d1d5db; }
+  .log-entry.done     { color: #34d399; font-weight: 600; }
+  .log-entry.error    { color: #f87171; }
+</style>
+<script type="text/javascript">
+  function setup(htmlComponent) {
+    window.htmlComponent = htmlComponent;
+
+    htmlComponent.addEventListener("DataChanged", function () {
+      const d = htmlComponent.Data;
+      if (!d || typeof d !== "object") { return; }
+      render(d);
+    });
+  }
+
+  function render(d) {
+    const stage      = d.stage      || "";
+    const regionIdx  = d.region_idx || 0;
+    const nRegions   = d.n_regions  || 0;
+    const rotIdx     = d.rot_idx    || 0;
+    const nRots      = d.n_rots     || 0;
+    const msg        = d.msg        || "";
+
+    document.getElementById("regionLabel").textContent =
+      "Regions: " + regionIdx + " / " + nRegions;
+    document.getElementById("rotLabel").textContent =
+      "Rotations: " + rotIdx + " / " + nRots;
+
+    document.getElementById("regionFill").style.width =
+      (nRegions ? (100 * regionIdx / nRegions) : 0) + "%";
+    document.getElementById("rotFill").style.width =
+      (nRots ? (100 * rotIdx / nRots) : 0) + "%";
+
+    if (msg) {
+      const div = document.createElement("div");
+      div.className = "log-entry " + stage;
+      div.textContent = "[" + stage + "] " + msg;
+      const log = document.getElementById("log");
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+  }
+</script>
+</head>
+<body>
+  <div class="bars">
+    <div class="bar-row">
+      <div class="bar-label">
+        <span class="stage">Region progress</span>
+        <span id="regionLabel">0 / 0</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="regionFill"></div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">
+        <span class="stage">Rotation progress</span>
+        <span id="rotLabel">0 / 0</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="rotFill"></div></div>
+    </div>
+  </div>
+  <div id="log"></div>
+</body>
+</html>

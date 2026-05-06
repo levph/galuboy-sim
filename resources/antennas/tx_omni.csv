@@ -1,0 +1,5 @@
+# galuboy antenna pattern v1
+# Aerial TX, isotropic 7 dBi reference. Replace with measured pattern when available.
+# Format: either an "isotropic,<gain_dbi>" sentinel line, or a regular (az,el) grid
+#         with header "az_deg,el_deg,gain_dbi". Grid must be rectangular.
+isotropic,7.0

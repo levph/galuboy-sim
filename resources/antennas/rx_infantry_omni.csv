@@ -1,0 +1,33 @@
+# galuboy antenna pattern v1
+# Infantry handheld: vertical-dipole-ish, az-independent, modest elevation taper
+# G(el) = 2.5 + 4 * cos(el)^2  (peak ~6.5 dBi at horizon; ~2.5 dBi at zenith/nadir)
+# Offsets from boresight in degrees. RX boresight default = +pi/2 (zenith).
+az_deg,el_deg,gain_dbi
+0,-90,2.5
+0,-60,3.5
+0,-30,5.5
+0,0,6.5
+0,30,5.5
+0,60,3.5
+0,90,2.5
+90,-90,2.5
+90,-60,3.5
+90,-30,5.5
+90,0,6.5
+90,30,5.5
+90,60,3.5
+90,90,2.5
+180,-90,2.5
+180,-60,3.5
+180,-30,5.5
+180,0,6.5
+180,30,5.5
+180,60,3.5
+180,90,2.5
+270,-90,2.5
+270,-60,3.5
+270,-30,5.5
+270,0,6.5
+270,30,5.5
+270,60,3.5
+270,90,2.5
