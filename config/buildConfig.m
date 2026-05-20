@@ -28,7 +28,12 @@ function config = buildConfig()
     % ---- Transmitter -----------------------------------------------------
     config.tx.frequency_hz     = 4e9;        % Hz
     config.tx.power_dbm        = 47;         % dBm
-    config.tx.altitude_m       = 1500;       % m AGL
+    config.tx.altitude_m       = 1500;       % m AGL at trajectory centroid
+                                              %   (used as fallback when
+                                              %    altitude_msl_m is empty)
+    config.tx.altitude_msl_m   = [];         % m MSL. [] -> derive from altitude_m
+                                              %   using terrain at the
+                                              %   trajectory centroid.
     config.tx.antenna_name     = 'tx_omni';  % CSV stem under resources/antennas/
     config.tx.boresight_az_rad = 0;          % azimuth (rad)
     config.tx.boresight_el_rad = -pi/2;      % elevation (rad); -pi/2 = nadir

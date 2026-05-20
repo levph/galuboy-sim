@@ -54,7 +54,7 @@ function plotRangeHistogram(results, cfg, target_axes)
     trows = ceil(n_tiles / tcols);
     tl = tiledlayout(fig, trows, tcols, 'Padding', 'compact', 'TileSpacing', 'compact');
     title(tl, sprintf(['Range analysis  |  P_{tx}=%.0f dBm  |  MDS=%.0f dBm  |  ' ...
-        'fade=%.0f dB  |  p%d  |  M=%d'], ...
+        'fade=%.0f dB  |  avail\\geq%g%%  |  M=%d'], ...
         cfg.tx.power_dbm, cfg.analysis.threshold_dbm, ...
         cfg.analysis.fade_margin_db, cfg.analysis.percentile, ...
         cfg.flight.num_rotations));
@@ -98,7 +98,7 @@ function plotOne(ax, dists, avail, cfg, label)
     hold(ax, 'off');
 
     xlabel(ax, 'Distance from centroid (m)');
-    ylabel(ax, sprintf('Availability (%%)  [P_{rx}(p%d) > MDS]', cfg.analysis.percentile));
+    ylabel(ax, sprintf('Availability (%%)  [fraction(P_{rx} > MDS) \\geq %g%%]', cfg.analysis.percentile));
     overall = 100 * mean(avail);
     title(ax, sprintf('%s  (overall %.1f%%, n=%d)', label, overall, numel(avail)));
     ylim(ax, [0, 110]);

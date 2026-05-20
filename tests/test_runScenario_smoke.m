@@ -33,9 +33,10 @@ classdef test_runScenario_smoke < matlab.unittest.TestCase
             tc.verifyEqual(numel(results), 1);
 
             r = results(1);
-            tc.verifyEqual(size(r.available),  [2, 10]);
-            tc.verifyEqual(size(r.prx_pctile), [2, 10]);
-            tc.verifyTrue(all(isfinite(r.prx_pctile(:))), 'No NaN P_rx');
+            tc.verifyEqual(size(r.available),     [2, 10]);
+            tc.verifyEqual(size(r.prx_floor_dbm), [2, 10]);
+            tc.verifyEqual(size(r.frac_above),    [2, 10]);
+            tc.verifyTrue(all(isfinite(r.prx_floor_dbm(:))), 'No NaN P_rx');
             tc.verifyTrue(islogical(r.available));
         end
     end

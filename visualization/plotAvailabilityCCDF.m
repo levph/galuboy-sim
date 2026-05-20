@@ -116,23 +116,28 @@ function [d_km, av, is_inf] = flattenAll(results)
     for r = 1:numel(results)
         res = results(r);
         if isempty(res.available), continue; end
-        M    = size(res.available, 1);
-        n_rx = size(res.available, 2);
+        M = size(res.available, 1);
 
         d_r  = double(reshape(res.dists_m,  [], 1)) / 1000;
         av_r = reshape(res.available, [], 1);
 
-        is_inf_r = false(numel(av_r), 1);
-        for m = 1:M
-            col = res.rx_types{m};
-            if iscategorical(col)
-                row_mask = (col == 'infantry');
-            else
-                row_mask = strcmp(string(col), "infantry");
-            end
-            idx_r = (m-1)*n_rx + (1:n_rx);
-            is_inf_r(idx_r) = row_mask(:);
+        % placeReceivers always emits rx_types in the order
+        % [infantry x n_inf; vehicular x n_veh], so the per-rx type column
+        % is constant across rotations. reshape() above is COLUMN-MAJOR,
+        % so to align is_inf with the flattened vector, we replicate the
+        % per-rx mask across M rows then column-major flatten.
+        col1 = res.rx_types{1};
+        if iscategorical(col1)
+            is_inf_per_rx = (col1 == 'infantry');
+        else
+            is_inf_per_rx = strcmp(string(col1), "infantry");
         end
+        is_inf_per_rx = is_inf_per_rx(:).';                       % [1 x n_rx]
+        if M >= 2 && ~isequal(res.rx_types{2}, col1)
+            warning('plotAvailabilityCCDF:rxTypeDrift', ...
+                'rx_types differ between rotations - mask assumes constant order.');
+        end
+        is_inf_r = reshape(repmat(is_inf_per_rx, M, 1), [], 1);   % column-major flatten
 
         d_km   = [d_km;   d_r];       %#ok<AGROW>
         av     = [av;     av_r];      %#ok<AGROW>
