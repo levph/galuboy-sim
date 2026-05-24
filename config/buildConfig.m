@@ -140,5 +140,6 @@ function config = buildConfig()
 
     % ---- Availability CCDF -----------------------------------------------
     config.ccdf.min_samples = 20;   % mask tail bins with fewer samples
+    config.ccdf.bin_km      = 0.2;  % distance bin width for the CCDF curve
 
 end

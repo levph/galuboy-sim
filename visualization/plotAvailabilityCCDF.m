@@ -9,14 +9,17 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
 %   x-axis, the *availability rate among receivers at range >= d*. Reads
 %   like a CCDF of coverage vs range: y(d) = P(available | dist >= d).
 %
-%   Includes 95% Wilson score confidence bands. Tail bins where the
-%   denominator falls below cfg.ccdf.min_samples are masked to NaN to
-%   suppress noisy far-range artefacts.
+%   Distances are aggregated into fixed-width bins (cfg.ccdf.bin_km,
+%   default 0.2 km) so the curve has stable visual resolution and the
+%   Wilson 95% confidence bands are evaluated at well-defined sample
+%   counts. Tail bins with fewer than cfg.ccdf.min_samples receivers
+%   in the d_bin..d_max range are masked to NaN.
 %
-%   opts (optional struct, all default true):
-%     .show_inf    plot the infantry-only curve
-%     .show_veh    plot the vehicular-only curve
-%     .show_total  plot the combined curve
+%   opts (optional struct):
+%     .show_inf   (default true)  infantry-only curve
+%     .show_veh   (default true)  vehicular-only curve
+%     .show_total (default true)  combined curve
+%     .no_title   (default false) suppress the figure title (for export)
 
     arguments
         results
@@ -25,13 +28,18 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
         opts.show_inf   (1,1) logical = true
         opts.show_veh   (1,1) logical = true
         opts.show_total (1,1) logical = true
+        opts.no_title   (1,1) logical = false
     end
 
-    % Fallback if ccdf config block is absent (backward compat)
     if isfield(cfg, 'ccdf') && isfield(cfg.ccdf, 'min_samples')
         min_samples = cfg.ccdf.min_samples;
     else
         min_samples = 20;
+    end
+    if isfield(cfg, 'ccdf') && isfield(cfg.ccdf, 'bin_km')
+        bin_km = cfg.ccdf.bin_km;
+    else
+        bin_km = 0.2;
     end
 
     ax = target_axes;
@@ -45,42 +53,64 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
         return;
     end
 
+    d_max = max(d_km);
+
     if opts.show_total
-        drawCCDF(ax, d_km,          av,          'total',    [0.20 0.20 0.20], 2.0, min_samples);
+        drawCCDF(ax, d_km,          av,          'total', ...
+                 [0.10 0.10 0.10], 2.5, 'none', min_samples, bin_km, d_max);
     end
     if opts.show_inf && any(is_inf)
-        drawCCDF(ax, d_km(is_inf),  av(is_inf),  'infantry', [0.93 0.69 0.13], 1.5, min_samples);
+        drawCCDF(ax, d_km(is_inf),  av(is_inf),  'infantry', ...
+                 [0.84 0.39 0.18], 1.8, 'o',    min_samples, bin_km, d_max);
     end
     if opts.show_veh && any(~is_inf)
-        drawCCDF(ax, d_km(~is_inf), av(~is_inf), 'vehicular',[0.30 0.60 0.90], 1.5, min_samples);
+        drawCCDF(ax, d_km(~is_inf), av(~is_inf), 'vehicular', ...
+                 [0.12 0.47 0.71], 1.8, 's',    min_samples, bin_km, d_max);
     end
 
     hold(ax, 'off');
     grid(ax, 'on');
-    ax.GridAlpha = 0.3;
-    ax.Box       = 'off';
-    xlabel(ax, 'Distance from centroid d (km)');
-    ylabel(ax, 'P(available | range \geq d)');
+    ax.GridAlpha           = 0.25;
+    ax.Box                 = 'off';
+    ax.FontSize            = 11;
+    ax.LineWidth           = 1.0;
+    xlabel(ax, 'Distance from centroid d (km)', 'FontSize', 12);
+    ylabel(ax, 'P(available | range \geq d)',   'FontSize', 12);
     ylim(ax, [0, 1.05]);
-    xlim(ax, [0, max(d_km)]);
-    title(ax, 'Availability CCDF vs distance from centroid');
-    legend(ax, 'Location', 'southwest');
+    xlim(ax, [0, d_max]);
+    if ~opts.no_title
+        title(ax, 'Availability CCDF vs distance from centroid', ...
+              'FontSize', 13, 'FontWeight', 'normal');
+    end
+    lg = legend(ax, 'Location', 'best');
+    lg.Box      = 'off';
+    lg.FontSize = 11;
 end
 
 
 % -------------------------------------------------------------------------
-function drawCCDF(ax, d_km, av, label, color, lw, min_samples)
+function drawCCDF(ax, d_km, av, label, color, lw, marker, min_samples, bin_km, d_max)
     if isempty(d_km), return; end
-    [ds, idx] = sort(d_km(:));
-    avs = double(av(idx));
-    N   = numel(avs);
 
-    % Reverse-cumulative availability rate: at each d=ds(i), fraction of
-    % samples in ds(i:end) that are available.
-    k = flipud(cumsum(flipud(avs)));
-    n = (N:-1:1).';
+    % Bin edges spaced by bin_km from 0 up to d_max (inclusive last edge).
+    edges = 0:bin_km:(d_max + bin_km);
+    if edges(end) < d_max + 0.5*bin_km
+        edges(end+1) = edges(end) + bin_km;
+    end
+    centres = edges(1:end-1) + 0.5*bin_km;
+    nbins   = numel(centres);
 
-    rate = k ./ n;
+    avs = double(av(:));
+    [counts, ~, bin_idx] = histcounts(d_km(:), edges);
+    avail_per_bin = accumarray(bin_idx(bin_idx > 0), avs(bin_idx > 0), [nbins, 1], @sum, 0);
+    counts        = counts(:);
+
+    % Reverse-cumulative aggregation: n(d_i) = total samples with d >= d_i,
+    % k(d_i) = number of those that are available.
+    n = flipud(cumsum(flipud(counts)));
+    k = flipud(cumsum(flipud(avail_per_bin)));
+
+    rate = k ./ max(n, 1);
 
     % 95% Wilson score interval — well-behaved at small n and extreme rates
     z      = 1.96;
@@ -90,21 +120,25 @@ function drawCCDF(ax, d_km, av, label, color, lw, min_samples)
     lo = max(0, centre - margin);
     hi = min(1, centre + margin);
 
-    % Mask tail where too few samples remain for reliable estimation
     sparse = n < min_samples;
     rate(sparse) = NaN;
     lo(sparse)   = NaN;
     hi(sparse)   = NaN;
 
-    % Shaded Wilson confidence band (drawn first so line sits on top)
+    x = centres(:);
+
     valid = ~sparse;
     if any(valid)
-        ds_v = ds(valid);
-        fill(ax, [ds_v; flipud(ds_v)], [lo(valid); flipud(hi(valid))], color, ...
-             'FaceAlpha', 0.15, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+        x_v  = x(valid);
+        lo_v = lo(valid);
+        hi_v = hi(valid);
+        fill(ax, [x_v; flipud(x_v)], [lo_v; flipud(hi_v)], color, ...
+             'FaceAlpha', 0.18, 'EdgeColor', 'none', 'HandleVisibility', 'off');
     end
 
-    plot(ax, ds, rate, '-', 'Color', color, 'LineWidth', lw, 'DisplayName', label);
+    plot(ax, x, rate, '-', 'Color', color, 'LineWidth', lw, ...
+         'Marker', marker, 'MarkerFaceColor', color, 'MarkerEdgeColor', color, ...
+         'MarkerSize', 5, 'DisplayName', label);
 end
 
 
