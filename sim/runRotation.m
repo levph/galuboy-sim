@@ -8,7 +8,7 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
 %
 %   Per-rotation streaming compute - no raw [Nf x n_rx] cube is returned.
 %   Path loss and antenna gains are evaluated, link budget is reduced to
-%   a per-RX percentile P_rx, and a logical availability flag is produced.
+%   a per-RX availability fraction and a logical availability flag.
 %
 %   Inputs:
 %     tx_template   txsite (position + antenna_height + freq + power
@@ -26,9 +26,13 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
 %     cfg           full config struct
 %
 %   Returns rot:
-%     rot.prx_pctile  [n_rx x 1]  percentile P_rx (dBm) over flight steps
-%     rot.available   [n_rx x 1]  logical, prx_pctile > threshold_dbm
-%     rot.rx_table    echo of input rx_table (convenience for downstream)
+%     rot.frac_above    [n_rx x 1]  single, mean(Prx > MDS) over flight steps
+%                                   (continuous mission-availability metric)
+%     rot.available     [n_rx x 1]  logical, frac_above >= percentile/100
+%     rot.prx_floor_dbm [n_rx x 1]  single, lower-tail P_rx percentile
+%                                   (kept for downstream colormaps / debug;
+%                                    equivalent gate: prx_floor_dbm > MDS)
+%     rot.rx_table      echo of input rx_table (convenience for downstream)
 %
 %   Tricky bits:
 %     - tx_steps is built OUTSIDE the parfor; mutating txsite properties
@@ -36,6 +40,10 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
 %     - map_name must be a constant string within the parfor body.
 %     - pathloss(...,'Map',...) requires a registered terrain name; pass
 %       '' to skip the Name-Value (default GMTED).
+%     - TX is flown at constant MSL: each waypoint's AntennaHeight is
+%       set to (target_msl - terrain_at_tx). target_msl is either
+%       cfg.tx.altitude_msl_m (when provided) or derived from
+%       cfg.tx.altitude_m treated as AGL at the trajectory centroid.
 
     Nf   = numel(flight_lons);
     n_rx = numel(rx_array);
@@ -48,9 +56,46 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
 
     % --- Pre-build per-step txsite array (sliced broadcast variable) -----
     tx_steps = repmat(tx_template, 1, Nf);
+
+    % --- TX altitude: hold constant MSL across the trajectory ------------
+    % Probe terrain elevation under each TX waypoint (AntennaHeight=0 so
+    % elevation() returns the ground MSL, not the aircraft MSL).
+    probe = txsite('Latitude', flight_lats, 'Longitude', flight_lons, ...
+                   'AntennaHeight', 0);
+    if use_terrain
+        terrain_at_tx = elevation(probe, 'Map', map_name_local);
+    else
+        terrain_at_tx = elevation(probe);   % default GMTED2010
+    end
+    terrain_at_tx = double(terrain_at_tx(:).');     % [1 x Nf]
+
+    % Resolve target MSL. Prefer explicit altitude_msl_m; otherwise treat
+    % the legacy altitude_m as AGL at the trajectory centroid.
+    if isfield(cfg.tx, 'altitude_msl_m') && ~isempty(cfg.tx.altitude_msl_m)
+        target_msl = double(cfg.tx.altitude_msl_m);
+    else
+        centroid_site = txsite('Latitude', mean(flight_lats), ...
+                               'Longitude', mean(flight_lons), 'AntennaHeight', 0);
+        if use_terrain
+            centroid_el = elevation(centroid_site, 'Map', map_name_local);
+        else
+            centroid_el = elevation(centroid_site);
+        end
+        target_msl = double(centroid_el) + double(cfg.tx.altitude_m);
+    end
+
+    agl = target_msl - terrain_at_tx;
+    min_safe_agl = 50;   % m - refuse to fly below this AGL
+    if any(agl < min_safe_agl)
+        error('runRotation:terrainConflict', ...
+            'MSL target %.0f m hits terrain (min AGL %.0f m) at %d waypoint(s)', ...
+            target_msl, min(agl), sum(agl < min_safe_agl));
+    end
+
     for i = 1:Nf
-        tx_steps(i).Latitude  = flight_lats(i);
-        tx_steps(i).Longitude = flight_lons(i);
+        tx_steps(i).Latitude      = flight_lats(i);
+        tx_steps(i).Longitude     = flight_lons(i);
+        tx_steps(i).AntennaHeight = agl(i);
     end
 
     % --- Path-loss + geometry sweep --------------------------------------
@@ -66,7 +111,10 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
         end
         [az_deg, el_deg] = angle(rx_array, tx_steps(i));
         PL(i,:) = single(pl_row(:).');
-        AZ(i,:) = single(mod(deg2rad(az_deg(:).') + 2*pi, 2*pi));
+        % MATLAB angle() returns CCW-from-east; convert to compass
+        % (CW-from-north) to match heading + boresight conventions.
+        az_compass = mod(single(pi)/2 - single(deg2rad(az_deg(:).')), single(2*pi));
+        AZ(i,:) = az_compass;
         EL(i,:) = single(deg2rad(el_deg(:).'));
     end
 
@@ -82,12 +130,12 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     tx_el_b  = cfg.tx.boresight_el_rad + abs_tilt;
 
     % --- Antenna gains (vectorized) --------------------------------------
-    % TX gain: lookup in TX frame (same az/el as angle(rx,tx) returned).
-    G_tx = applyAntennaGain(ant.tx_pat, AZ, EL, tx_az_b, tx_el_b);
-
-    % RX gain: viewed from RX -> TX, az shifts by pi, el flips sign.
-    AZ_rx = mod(AZ + single(pi), single(2*pi));
-    EL_rx = -EL;
+    % angle(rx, tx) returns the direction at RX looking toward TX (RX->TX).
+    % RX gain uses that geometry directly. TX gain needs the reciprocal
+    % direction (TX->RX): flip azimuth by pi and negate elevation.
+    AZ_tx = mod(AZ + single(pi), single(2*pi));
+    EL_tx = -EL;
+    G_tx  = applyAntennaGain(ant.tx_pat, AZ_tx, EL_tx, tx_az_b, tx_el_b);
 
     % Per-RX dispatch mask: which RX columns are infantry vs vehicular.
     % (Not to be confused with "infinite path loss" - this is purely about
@@ -104,12 +152,12 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     G_rx = zeros(Nf, n_rx, 'single');
     if any(is_infantry)
         G_rx(:,  is_infantry) = applyAntennaGain(ant.inf_pat, ...
-            AZ_rx(:,  is_infantry), EL_rx(:,  is_infantry), ...
+            AZ(:,  is_infantry), EL(:,  is_infantry), ...
             cfg.rx.infantry.boresight_az_rad, cfg.rx.infantry.boresight_el_rad);
     end
     if any(~is_infantry)
         G_rx(:, ~is_infantry) = applyAntennaGain(ant.veh_pat, ...
-            AZ_rx(:, ~is_infantry), EL_rx(:, ~is_infantry), ...
+            AZ(:, ~is_infantry), EL(:, ~is_infantry), ...
             cfg.rx.vehicular.boresight_az_rad, cfg.rx.vehicular.boresight_el_rad);
     end
 
@@ -118,8 +166,17 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     fade_db = single(cfg.analysis.fade_margin_db);
     Prx     = Pt_dbm + G_tx - PL + G_rx - fade_db;        % [Nf x n_rx]
 
-    % Per-RX percentile over flight steps. prctile(...,1) reduces dim 1.
-    rot.prx_pctile = prctile(Prx, cfg.analysis.percentile, 1).';   % [n_rx x 1]
-    rot.available  = rot.prx_pctile > single(cfg.analysis.threshold_dbm);
-    rot.rx_table   = rx_table;
+    % Mission availability per RX: fraction of flight steps clearing MDS,
+    % gated by the configured availability target (cfg.analysis.percentile
+    % is the target in % of the rotation, e.g. 99 = "link up >=99% of time").
+    threshold      = single(cfg.analysis.threshold_dbm);
+    above          = Prx > threshold;                                       % [Nf x n_rx] logical
+    rot.frac_above = single(mean(above, 1)).';                              % [n_rx x 1] in [0,1]
+    target_frac    = single(cfg.analysis.percentile) / single(100);         % e.g. 0.99
+    rot.available  = rot.frac_above >= target_frac;                         % [n_rx x 1] logical
+
+    % Lower-tail Prx percentile, kept for downstream colormaps / debug.
+    % Equivalent gate: rot.available == (rot.prx_floor_dbm > threshold).
+    rot.prx_floor_dbm = prctile(Prx, 100 - cfg.analysis.percentile, 1).';   % [n_rx x 1]
+    rot.rx_table      = rx_table;
 end

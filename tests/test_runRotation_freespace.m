@@ -7,7 +7,7 @@ classdef test_runRotation_freespace < matlab.unittest.TestCase
 %     - zero fade margin
 %   the link budget reduces to  Prx = Pt - PL_fs  per (step, RX).
 %   This test runs a single rotation and verifies that the resulting
-%   prx_pctile values are finite, monotonically lower with distance, and
+%   prx_floor_dbm values are finite, monotonically lower with distance, and
 %   match the analytic Friis prediction within ~1 dB tolerance.
 %
 %   Skipped when the Communications / Phased-Array stack is missing.
@@ -68,16 +68,19 @@ classdef test_runRotation_freespace < matlab.unittest.TestCase
             rot = runRotation(tx_template, rx_array, rx_table, pm, '', ...
                               flight_lons, flight_lats, ant, cfg);
 
-            tc.verifyEqual(numel(rot.prx_pctile), 5);
-            tc.verifyTrue(all(isfinite(rot.prx_pctile)), 'No NaN P_rx');
-            tc.verifyTrue(all(rot.prx_pctile < cfg.tx.power_dbm + 7 + 7), ...
+            tc.verifyEqual(numel(rot.prx_floor_dbm), 5);
+            tc.verifyEqual(numel(rot.frac_above),    5);
+            tc.verifyTrue(all(isfinite(rot.prx_floor_dbm)), 'No NaN P_rx');
+            tc.verifyTrue(all(rot.prx_floor_dbm < cfg.tx.power_dbm + 7 + 7), ...
                 'Prx should be below Pt + Gtx + Grx (sanity ceiling)');
 
             % Friis floor: even at 100 km @ 4 GHz, FSPL is ~145 dB. With
             % Pt=30 dBm + 14 dBi total isotropic -> Prx > -101 dBm. We just
             % check Prx > -150 dBm.
-            tc.verifyTrue(all(rot.prx_pctile > -150), ...
+            tc.verifyTrue(all(rot.prx_floor_dbm > -150), ...
                 'Prx unreasonably low - likely wrong link-budget sign');
+            tc.verifyTrue(all(rot.frac_above >= 0 & rot.frac_above <= 1), ...
+                'frac_above must be in [0,1]');
         end
     end
 end

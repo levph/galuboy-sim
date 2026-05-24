@@ -145,16 +145,21 @@ function [lons, lats, avail, is_infantry] = flattenRegion(res)
     lats   = double(reshape(res.rx_locations(:,:,2), [], 1));
     avail  = reshape(res.available, [], 1);
 
-    is_infantry = false(size(avail));
-    n_rx = size(res.available, 2);
-    for m = 1:M
-        col = res.rx_types{m};
-        if iscategorical(col)
-            row_mask = (col == 'infantry');
-        else
-            row_mask = strcmp(string(col), "infantry");
-        end
-        idx = (m-1)*n_rx + (1:n_rx);
-        is_infantry(idx) = row_mask(:);
+    % placeReceivers always emits rx_types in the order
+    % [infantry x n_inf; vehicular x n_veh], so the per-rx type column
+    % is constant across rotations. reshape() above is COLUMN-MAJOR,
+    % so to align is_infantry with the flattened vector, we replicate
+    % the per-rx mask across M rows then column-major flatten.
+    col1 = res.rx_types{1};
+    if iscategorical(col1)
+        is_inf_per_rx = (col1 == 'infantry');
+    else
+        is_inf_per_rx = strcmp(string(col1), "infantry");
     end
+    is_inf_per_rx = is_inf_per_rx(:).';                       % [1 x n_rx]
+    if M >= 2 && ~isequal(res.rx_types{2}, col1)
+        warning('plotAvailabilityMap:rxTypeDrift', ...
+            'rx_types differ between rotations - mask assumes constant order.');
+    end
+    is_infantry = reshape(repmat(is_inf_per_rx, M, 1), [], 1); % column-major flatten
 end

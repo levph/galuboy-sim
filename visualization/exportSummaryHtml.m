@@ -97,7 +97,7 @@ function [hero_html, kpi_html] = buildHero(cfg, results, timestamp)
         kpiCard("Vehicular",            percentStr(veh_total),     accentForRate(veh_total)), ...
         kpiCard("Samples",              compactInt(n_samples),     "neutral"), ...
         kpiCard("Elapsed",              sprintf("%.1f s", elapsed_s), "neutral"), ...
-        kpiCard("Percentile",           sprintf("p%g", cfg.analysis.percentile), "neutral"), ...
+        kpiCard("Availability target",  sprintf("%g%%", cfg.analysis.percentile), "neutral"), ...
         "</section>");
 end
 
@@ -139,10 +139,10 @@ end
 function html = buildConfigSections(cfg)
     groups = {
         'Transmitter', {
-            'Frequency',  sprintf('%.3f MHz', cfg.tx.frequency_hz/1e6)
-            'Power',      sprintf('%.1f dBm',  cfg.tx.power_dbm)
-            'Altitude',   sprintf('%.0f m AGL', cfg.tx.altitude_m)
-            'Antenna',    cfg.tx.antenna_name
+            'Frequency',         sprintf('%.3f MHz', cfg.tx.frequency_hz/1e6)
+            'Power',             sprintf('%.1f dBm',  cfg.tx.power_dbm)
+            'Altitude (target)', formatTxAltitude(cfg.tx)
+            'Antenna',           cfg.tx.antenna_name
         }
         'Receivers', {
             'Infantry',         sprintf('%d  &middot;  %.1f m  &middot;  %s', cfg.rx.infantry.count,  cfg.rx.infantry.height_m,  cfg.rx.infantry.antenna_name)
@@ -151,9 +151,9 @@ function html = buildConfigSections(cfg)
         }
         'Propagation', propagationRows(cfg)
         'Analysis', {
-            'Threshold',   sprintf('%.1f dBm', cfg.analysis.threshold_dbm)
-            'Percentile',  sprintf('%g%%', cfg.analysis.percentile)
-            'Fade margin', sprintf('%.1f dB', cfg.analysis.fade_margin_db)
+            'Threshold',          sprintf('%.1f dBm', cfg.analysis.threshold_dbm)
+            'Availability target',sprintf('%g%%', cfg.analysis.percentile)
+            'Fade margin',        sprintf('%.1f dB', cfg.analysis.fade_margin_db)
         }
         'Flight', {
             'Steps',              sprintf('%d', cfg.flight.num_flight_steps)
@@ -249,6 +249,15 @@ end
 % =========================================================================
 %  Per-RX-type rate
 % =========================================================================
+function s = formatTxAltitude(tx)
+    if isfield(tx, 'altitude_msl_m') && ~isempty(tx.altitude_msl_m)
+        s = sprintf('%.0f m MSL', tx.altitude_msl_m);
+    else
+        s = sprintf('%.0f m AGL at centroid', tx.altitude_m);
+    end
+end
+
+
 function rows = propagationRows(cfg)
     p = cfg.propagation;
     model_label = prettyModelName(p.model);

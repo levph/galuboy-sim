@@ -123,6 +123,14 @@ function pat = loadAntennaPattern(antenna_name, antennas_dir)
     az_grid_rad = deg2rad(az_grid);
     el_grid_rad = deg2rad(el_grid);
 
+    % Make the az axis periodic by replicating the az=0 row at az=2*pi
+    % so queries near the wrap point interpolate continuously instead of
+    % falling outside the grid and getting 'nearest'-clamped.
+    if abs(az_grid_rad(end) - 2*pi) > 1e-9
+        az_grid_rad(end+1) = 2*pi;
+        G(end+1, :)        = G(1, :);
+    end
+
     % 'linear' inside the grid; 'nearest' OOR clamps - protects against
     % NaN at boresight offsets that wandered outside the table.
     F = griddedInterpolant({az_grid_rad, el_grid_rad}, G, 'linear', 'nearest');

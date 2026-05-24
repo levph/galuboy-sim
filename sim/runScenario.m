@@ -12,7 +12,8 @@ function results = runScenario(cfg, progress_cb)
 %   Returns results - struct array, one entry per region:
 %     results(r).region          (struct from resolveRegion)
 %     results(r).available       [M x n_rx] logical
-%     results(r).prx_pctile      [M x n_rx] single
+%     results(r).frac_above      [M x n_rx] single  (fraction of rotation > MDS)
+%     results(r).prx_floor_dbm   [M x n_rx] single  (lower-tail P_rx percentile)
 %     results(r).dists_m         [M x n_rx] single  (distance from region centroid)
 %     results(r).rx_locations    [M x n_rx x 2] single  (lon, lat per rx per rotation)
 %     results(r).rx_types        cell {M x 1}   (categorical column per rotation)
@@ -41,9 +42,12 @@ function results = runScenario(cfg, progress_cb)
     end
     regions(1, n_regions) = struct( ...
         'name', '', 'osm_path', '', 'latlim', [], 'lonlim', [], ...
-        'center_lat', 0, 'center_lon', 0);
+        'center_lat', 0, 'center_lon', 0, 'buildings', {{}});
     for r = 1:n_regions
-        regions(r) = resolveRegion(region_cfgs(r), repo_root);
+        rg = resolveRegion(region_cfgs(r), repo_root);
+        % OSM-less regions: osmReadBuildings returns {} for missing/empty paths
+        rg.buildings = osmReadBuildings(rg.osm_path);
+        regions(r) = rg;
     end
 
     % --- Terrain registration (single union-bbox terrain) ----------------
@@ -104,7 +108,8 @@ function results = runScenario(cfg, progress_cb)
     n_rx  = n_inf + n_veh;
 
     results(1, n_regions) = struct( ...
-        'region', struct(), 'available', logical([]), 'prx_pctile', [], ...
+        'region', struct(), 'available', logical([]), ...
+        'frac_above', [], 'prx_floor_dbm', [], ...
         'dists_m', [], 'rx_locations', [], 'rx_types', {{}}, ...
         'rx_heights', [], 'elapsed_s', 0);
 
@@ -116,7 +121,8 @@ function results = runScenario(cfg, progress_cb)
         end
 
         avail_mat   = false(M, n_rx);
-        prx_mat     = zeros(M, n_rx, 'single');
+        frac_mat    = zeros(M, n_rx, 'single');
+        floor_mat   = zeros(M, n_rx, 'single');
         dists_mat   = zeros(M, n_rx, 'single');
         loc_mat     = zeros(M, n_rx, 2, 'single');
         types_cell  = cell(M, 1);
@@ -127,14 +133,15 @@ function results = runScenario(cfg, progress_cb)
             rotation_deg = (m - 1) * cfg.flight.step_degrees;
             [flight_lons, flight_lats, flight_tilts, flight_headings] = ...
                 generateTrajectory(region, cfg.flight, rotation_deg);
-            [rx_array,    rx_table]    = placeReceivers(region, cfg.rx);
+            [rx_array,    rx_table]    = placeReceivers(region, cfg.rx, region.buildings);
 
             rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
                               flight_lons, flight_lats, ant, cfg, ...
                               flight_tilts, flight_headings);
 
             avail_mat(m, :)   = rot.available(:).';
-            prx_mat(m, :)     = single(rot.prx_pctile(:).');
+            frac_mat(m, :)    = single(rot.frac_above(:).');
+            floor_mat(m, :)   = single(rot.prx_floor_dbm(:).');
             loc_mat(m, :, 1)  = single(rx_table.lon(:).');
             loc_mat(m, :, 2)  = single(rx_table.lat(:).');
             dists_mat(m, :)   = single(distanceFromCentroid( ...
@@ -149,14 +156,15 @@ function results = runScenario(cfg, progress_cb)
             end
         end
 
-        results(r).region       = region;
-        results(r).available    = avail_mat;
-        results(r).prx_pctile   = prx_mat;
-        results(r).dists_m      = dists_mat;
-        results(r).rx_locations = loc_mat;
-        results(r).rx_types     = types_cell;
-        results(r).rx_heights   = height_mat;
-        results(r).elapsed_s    = toc(t_start);
+        results(r).region        = region;
+        results(r).available     = avail_mat;
+        results(r).frac_above    = frac_mat;
+        results(r).prx_floor_dbm = floor_mat;
+        results(r).dists_m       = dists_mat;
+        results(r).rx_locations  = loc_mat;
+        results(r).rx_types      = types_cell;
+        results(r).rx_heights    = height_mat;
+        results(r).elapsed_s     = toc(t_start);
     end
 
     % --- Save -------------------------------------------------------------
