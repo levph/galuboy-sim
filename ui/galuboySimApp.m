@@ -48,14 +48,19 @@ function galuboySimApp()
     formPanel.Layout.Column = 1;
     nRows = 21;
     fg = uigridlayout(formPanel, [nRows, 2]);
-    fg.RowHeight   = repmat({26}, 1, nRows);
-    fg.ColumnWidth = {140, '1x'};
-    fg.Padding     = [8 8 8 8];
-    fg.RowSpacing  = 4;
-    fg.Scrollable  = 'on';
+    fg.RowHeight    = repmat({26}, 1, nRows);
+    fg.RowHeight{1} = 120;                              % taller row for region listbox
+    fg.ColumnWidth  = {140, '1x'};
+    fg.Padding      = [8 8 8 8];
+    fg.RowSpacing   = 4;
+    fg.Scrollable   = 'on';
 
-    handles.regionDD = addRow(fg, 1,  'Region', @(p) ...
-        uidropdown(p, 'Items', cellstr(region_names), 'Value', char(region_names(1))));
+    % Multi-select region listbox. Hold Cmd/Ctrl to add to selection;
+    % Shift to range-select. At least one region must remain selected.
+    handles.regionDD = addRow(fg, 1,  'Regions (multi)', @(p) ...
+        uilistbox(p, 'Items', cellstr(region_names), ...
+                     'Value', cellstr(region_names(1)), ...
+                     'Multiselect', 'on'));
     handles.nInf     = addRow(fg, 2,  'Infantry RX count', @(p) ...
         uispinner(p, 'Limits', [0, 1000], 'Value', cfg0.rx.infantry.count, 'Step', 5));
     handles.infH     = addRow(fg, 3,  'Infantry RX height (m)', @(p) ...
@@ -229,8 +234,21 @@ end
 
 
 function s = readForm(h)
+    % regionDD is a multi-select uilistbox; Value is a cellstr (or char if a
+    % single item). Normalise to a cellstr of region names.
+    region_names = h.regionDD.Value;
+    if ischar(region_names)
+        region_names = {region_names};
+    elseif isstring(region_names)
+        region_names = cellstr(region_names);
+    end
+    if isempty(region_names)
+        error('galuboySimApp:noRegion', ...
+            'Select at least one region before running.');
+    end
+
     s = struct( ...
-        'region_name',           char(h.regionDD.Value), ...
+        'region_names',          {region_names}, ...      % cell array
         'n_inf',                 h.nInf.Value, ...
         'inf_height_m',          h.infH.Value, ...
         'n_veh',                 h.nVeh.Value, ...
@@ -273,7 +291,16 @@ function onLoadCfg(h)
     s = jsondecode(raw);
 
     fp = fieldnames(s);
-    if ismember('region_name',           fp), h.regionDD.Value    = char(s.region_name);          end
+    % Backward compat: accept old 'region_name' (char) OR new 'region_names'
+    % (cell of chars / string array). uilistbox.Value expects a cellstr.
+    if ismember('region_names', fp)
+        names = s.region_names;
+        if isstring(names),  names = cellstr(names);  end
+        if ischar(names),    names = {names};         end
+        h.regionDD.Value = names;
+    elseif ismember('region_name', fp)
+        h.regionDD.Value = {char(s.region_name)};
+    end
     if ismember('n_inf',                 fp), h.nInf.Value        = s.n_inf;                      end
     if ismember('inf_height_m',          fp), h.infH.Value        = s.inf_height_m;               end
     if ismember('n_veh',                 fp), h.nVeh.Value        = s.n_veh;                      end

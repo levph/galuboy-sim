@@ -10,10 +10,9 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
 %   like a CCDF of coverage vs range: y(d) = P(available | dist >= d).
 %
 %   Distances are aggregated into fixed-width bins (cfg.ccdf.bin_km,
-%   default 0.2 km) so the curve has stable visual resolution and the
-%   Wilson 95% confidence bands are evaluated at well-defined sample
-%   counts. Tail bins with fewer than cfg.ccdf.min_samples receivers
-%   in the d_bin..d_max range are masked to NaN.
+%   default 0.2 km) so the curve has stable visual resolution. Tail bins
+%   with fewer than cfg.ccdf.min_samples receivers in the d_bin..d_max
+%   range are masked to NaN.
 %
 %   opts (optional struct):
 %     .show_inf   (default true)  infantry-only curve
@@ -112,29 +111,11 @@ function drawCCDF(ax, d_km, av, label, color, lw, marker, min_samples, bin_km, d
 
     rate = k ./ max(n, 1);
 
-    % 95% Wilson score interval — well-behaved at small n and extreme rates
-    z      = 1.96;
-    denom  = 1 + z^2 ./ n;
-    centre = (rate + z^2 ./ (2*n)) ./ denom;
-    margin = z * sqrt(rate .* (1 - rate) ./ n + z^2 ./ (4 * n.^2)) ./ denom;
-    lo = max(0, centre - margin);
-    hi = min(1, centre + margin);
-
-    sparse = n < min_samples;
-    rate(sparse) = NaN;
-    lo(sparse)   = NaN;
-    hi(sparse)   = NaN;
+    % Mask sparse tail bins (too few samples for a meaningful rate)
+    sparse_mask = n < min_samples;
+    rate(sparse_mask) = NaN;
 
     x = centres(:);
-
-    valid = ~sparse;
-    if any(valid)
-        x_v  = x(valid);
-        lo_v = lo(valid);
-        hi_v = hi(valid);
-        fill(ax, [x_v; flipud(x_v)], [lo_v; flipud(hi_v)], color, ...
-             'FaceAlpha', 0.18, 'EdgeColor', 'none', 'HandleVisibility', 'off');
-    end
 
     plot(ax, x, rate, '-', 'Color', color, 'LineWidth', lw, ...
          'Marker', marker, 'MarkerFaceColor', color, 'MarkerEdgeColor', color, ...

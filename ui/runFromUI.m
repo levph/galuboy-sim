@@ -90,17 +90,31 @@ function cfg = buildCfgFromUI(s)
     if isfield(s, 'max_tilt_deg'),         cfg.flight.max_tilt_deg         = s.max_tilt_deg;         end
     if isfield(s, 'placement_radius_km'),  cfg.rx.placement_radius_km      = s.placement_radius_km;  end
 
-    % Filter regions to the selected one (preserves multi-region extension
-    % point - the dropdown can later be made multi-select).
+    % Filter regions to the selected subset. Accept the new region_names
+    % cellstr (from the multi-select listbox) or the legacy single
+    % region_name (from older saved JSON form state).
+    if isfield(s, 'region_names') && ~isempty(s.region_names)
+        wanted = s.region_names;
+    elseif isfield(s, 'region_name') && ~isempty(s.region_name)
+        wanted = {s.region_name};
+    else
+        error('runFromUI:noRegion', 'No region selected in UI form state.');
+    end
+    if isstring(wanted), wanted = cellstr(wanted); end
+    if ischar(wanted),   wanted = {wanted};        end
+
+    all_names = arrayfun(@(rg) string(rg.name), cfg.regions);
     keep = false(numel(cfg.regions), 1);
     for k = 1:numel(cfg.regions)
-        if strcmp(cfg.regions(k).name, s.region_name)
+        if any(strcmp(cfg.regions(k).name, wanted))
             keep(k) = true;
         end
     end
-    if ~any(keep)
+    unknown = setdiff(string(wanted), all_names);
+    if ~isempty(unknown)
         error('runFromUI:unknownRegion', ...
-              'Selected region "%s" is not in config.regions.', s.region_name);
+              'Selected region(s) not in config.regions: %s', ...
+              strjoin(cellstr(unknown), ', '));
     end
     cfg.regions = cfg.regions(keep);
 end
