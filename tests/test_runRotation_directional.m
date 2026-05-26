@@ -4,12 +4,12 @@ classdef test_runRotation_directional < matlab.unittest.TestCase
 %   Builds a synthetic single-flight-step rotation where the TX sits
 %   exactly above one RX. With:
 %     - free-space propagation
-%     - isotropic TX (7 dBi)
+%     - isotropic TX (7 dBi) as the airborne TX (DL transmitter)
 %     - vehicular dipole on the RX (peak 7 dBi at el offset 0, boresight
 %       at zenith -> peak when signal arrives from straight up)
 %     - zero fade margin
-%   the link budget should be:
-%       Prx = Pt + 7 dBi (TX) - FSPL(d, f) + 7 dBi (RX peak) - 0
+%   the DL link budget should be:
+%       Prx_dl = Pt_air + 7 dBi (TX) - FSPL(d, f) + 7 dBi (RX peak) - 0
 %
 %   This catches bugs 1.1 (TX/RX frame swap), 1.4 (compass vs math az), and
 %   1.5 (az grid wrap) in combination: any of them would steer the RX
@@ -42,20 +42,27 @@ classdef test_runRotation_directional < matlab.unittest.TestCase
             cfg.flight.num_flight_steps   = 1;
             cfg.tx.altitude_m             = 1500;
             cfg.tx.altitude_msl_m         = [];
-            cfg.tx.power_dbm              = 30;
+            cfg.tx.power_air_dbm          = 30;
+            cfg.tx.power_gnd_dbm          = 30;
             cfg.tx.frequency_hz           = 4e9;
-            cfg.tx.antenna_name           = 'tx_omni';        % isotropic 7 dBi
-            cfg.rx.infantry.count         = 1;
-            cfg.rx.infantry.height_m      = 1.5;
-            cfg.rx.infantry.antenna_name  = 'rx_vehicular_dipole';
+            % All antennas reuse the legacy fixtures so the boresight peak
+            % math is identical to the pre-DL/UL version of this test.
+            cfg.tx.airborne.antenna_name     = 'tx_omni';                % isotropic 7 dBi
+            cfg.tx.ground.antenna_name       = 'tx_omni';
+            cfg.rx.airborne.antenna_name_ul  = 'tx_omni';
+            cfg.rx.infantry.count            = 1;
+            cfg.rx.infantry.height_m         = 1.5;
+            cfg.rx.infantry.antenna_name_dl  = 'rx_vehicular_dipole';
             cfg.rx.infantry.boresight_az_rad = 0;
-            cfg.rx.infantry.boresight_el_rad = pi/2;          % zenith
-            cfg.rx.vehicular.count        = 0;
-            cfg.rx.vehicular.antenna_name = 'rx_vehicular_dipole';
+            cfg.rx.infantry.boresight_el_rad = pi/2;                     % zenith
+            cfg.rx.vehicular.count           = 0;
+            cfg.rx.vehicular.antenna_name_dl = 'rx_vehicular_dipole';
 
-            ant.tx_pat  = loadAntennaPattern(cfg.tx.antenna_name,             antennas_dir);
-            ant.inf_pat = loadAntennaPattern(cfg.rx.infantry.antenna_name,    antennas_dir);
-            ant.veh_pat = loadAntennaPattern(cfg.rx.vehicular.antenna_name,   antennas_dir);
+            ant.tx_air_pat  = loadAntennaPattern(cfg.tx.airborne.antenna_name,         antennas_dir);
+            ant.tx_gnd_pat  = loadAntennaPattern(cfg.tx.ground.antenna_name,           antennas_dir);
+            ant.rx_air_pat  = loadAntennaPattern(cfg.rx.airborne.antenna_name_ul,      antennas_dir);
+            ant.rx_gnd1_pat = loadAntennaPattern(cfg.rx.infantry.antenna_name_dl,      antennas_dir);
+            ant.rx_gnd2_pat = loadAntennaPattern(cfg.rx.vehicular.antenna_name_dl,     antennas_dir);
 
             % Manual single-RX placement at a known coordinate. We
             % bypass placeReceivers to put the RX exactly at the
@@ -66,8 +73,8 @@ classdef test_runRotation_directional < matlab.unittest.TestCase
             rx_table = table(rx_lon, rx_lat, ...
                 categorical("infantry", ["infantry","vehicular"]), ...
                 cfg.rx.infantry.height_m, ...
-                string(cfg.rx.infantry.antenna_name), ...
-                'VariableNames', {'lon','lat','type','height_m','antenna_name'});
+                string(cfg.rx.infantry.antenna_name_dl), ...
+                'VariableNames', {'lon','lat','type','height_m','antenna_name_dl'});
             rx_array = rxsite('Latitude', rx_lat, 'Longitude', rx_lon, ...
                               'AntennaHeight', cfg.rx.infantry.height_m);
 
@@ -76,7 +83,7 @@ classdef test_runRotation_directional < matlab.unittest.TestCase
                 'Latitude', rx_lat, 'Longitude', rx_lon, ...
                 'AntennaHeight', cfg.tx.altitude_m, ...
                 'TransmitterFrequency', cfg.tx.frequency_hz, ...
-                'TransmitterPower', 10^((cfg.tx.power_dbm - 30) / 10));
+                'TransmitterPower', 10^((cfg.tx.power_air_dbm - 30) / 10));
 
             % Single-step trajectory: TX coincident with RX in lat/lon.
             flight_lons = rx_lon;
@@ -95,17 +102,20 @@ classdef test_runRotation_directional < matlab.unittest.TestCase
 
             % Peak gains from the pattern at el offset 0 (vehicular dipole)
             % and isotropic TX (tx_omni reports flat 7 dBi).
-            g_tx_peak = ant.tx_pat.flat_gain_dbi;                          % 7
-            g_rx_peak = ant.inf_pat.gain_func(0, 0);                       % 7
+            g_tx_peak = ant.tx_air_pat.flat_gain_dbi;                      % 7
+            g_rx_peak = ant.rx_gnd1_pat.gain_func(0, 0);                   % 7
 
-            expected_prx = cfg.tx.power_dbm + g_tx_peak - fspl_db + g_rx_peak;
+            expected_prx = cfg.tx.power_air_dbm + g_tx_peak - fspl_db + g_rx_peak;
 
-            tc.verifyEqual(double(rot.prx_floor_dbm), expected_prx, ...
+            tc.verifyEqual(double(rot.prx_floor_dbm_dl), expected_prx, ...
                 'AbsTol', 0.5, ...
                 sprintf(['Prx at overhead should match boresight peak '...
                          '(expected %.2f dBm; got %.2f dBm). A ~17 dB ' ...
                          'deficit indicates the RX lookup is in the dipole notch.'], ...
-                        expected_prx, double(rot.prx_floor_dbm)));
+                        expected_prx, double(rot.prx_floor_dbm_dl)));
+
+            % Back-compat alias must match.
+            tc.verifyEqual(double(rot.prx_floor_dbm), double(rot.prx_floor_dbm_dl));
         end
     end
 end

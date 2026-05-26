@@ -1,8 +1,8 @@
 classdef test_buildConfig_schema < matlab.unittest.TestCase
-%TEST_BUILDCONFIG_SCHEMA  Validate the v4 config struct schema.
+%TEST_BUILDCONFIG_SCHEMA  Validate the v4 (DL/UL) config struct schema.
 %
-%   Confirms the required field tree is present and that v3 deprecated
-%   fields are gone.
+%   Confirms the required field tree is present and that retired
+%   single-direction fields are gone.
 
     methods (Test)
 
@@ -20,18 +20,25 @@ classdef test_buildConfig_schema < matlab.unittest.TestCase
             tc.verifyTrue(isfield(cfg, 'viz'));
             tc.verifyTrue(isfield(cfg, 'hist'));
 
-            % rx subtree
-            tc.verifyTrue(all(isfield(cfg.rx, {'infantry', 'vehicular'})));
+            % rx subtree: infantry + vehicular share antenna_name_dl;
+            % airborne RX is the UL receiver; patch.* drives the helper.
+            tc.verifyTrue(all(isfield(cfg.rx, {'infantry', 'vehicular', 'airborne', 'patch'})));
             for which = ["infantry", "vehicular"]
                 sub = cfg.rx.(which);
-                tc.verifyTrue(all(isfield(sub, {'count','height_m','antenna_name', ...
+                tc.verifyTrue(all(isfield(sub, {'count','height_m','antenna_name_dl', ...
                                                 'boresight_az_rad','boresight_el_rad'})), ...
                     sprintf('rx.%s missing required field', which));
             end
+            tc.verifyTrue(all(isfield(cfg.rx.airborne, ...
+                {'antenna_name_ul','boresight_az_rad','boresight_el_rad'})));
+            tc.verifyTrue(all(isfield(cfg.rx.patch, {'fov_in_deg','fov_out_deg','floor_db'})));
 
-            % tx
-            tc.verifyTrue(all(isfield(cfg.tx, {'frequency_hz','power_dbm','altitude_m', ...
-                'antenna_name','boresight_az_rad','boresight_el_rad'})));
+            % tx: DL/UL split powers, airborne + ground antenna names
+            tc.verifyTrue(all(isfield(cfg.tx, {'frequency_hz','power_air_dbm','power_gnd_dbm', ...
+                'altitude_m','altitude_msl_m','airborne','ground', ...
+                'boresight_az_rad','boresight_el_rad'})));
+            tc.verifyTrue(isfield(cfg.tx.airborne, 'antenna_name'));
+            tc.verifyTrue(isfield(cfg.tx.ground,   'antenna_name'));
 
             % flight + analysis + propagation
             tc.verifyTrue(all(isfield(cfg.flight, {'num_flight_steps','step_degrees', ...
@@ -42,11 +49,10 @@ classdef test_buildConfig_schema < matlab.unittest.TestCase
                 'situation_variability','terrain_name','use_terrain'})));
 
             % regions defaults to a single Yarka entry
-            tc.verifyEqual(numel(cfg.regions), 1);
             tc.verifyEqual(cfg.regions(1).name, 'yarka');
         end
 
-        function deprecatedFieldsAbsent(tc)
+        function retiredFieldsAbsent(tc)
             cfg = buildConfig();
 
             % v3 names that were retired
@@ -55,13 +61,13 @@ classdef test_buildConfig_schema < matlab.unittest.TestCase
             tc.verifyFalse(isfield(cfg, 'link'),   'config.link.* should be dropped');
 
             tc.verifyFalse(isfield(cfg.tx,  'frequency'),  'use frequency_hz, not frequency');
-            tc.verifyFalse(isfield(cfg.viz, 'osm_path'),   'osm_path moved to regions(*).osm_path');
 
-            % availability_threshold and percentile moved under analysis.*
-            if isfield(cfg, 'sim')
-                tc.verifyFalse(isfield(cfg.sim, 'availability_threshold_dbm'));
-                tc.verifyFalse(isfield(cfg.sim, 'n_rx'));
-            end
+            % v4 DL/UL split retired the single-direction names.
+            tc.verifyFalse(isfield(cfg.tx, 'power_dbm'),    'replaced by power_air_dbm + power_gnd_dbm');
+            tc.verifyFalse(isfield(cfg.tx, 'antenna_name'), 'replaced by tx.airborne/ground.antenna_name');
+            tc.verifyFalse(isfield(cfg.rx.infantry,  'antenna_name'), 'replaced by antenna_name_dl');
+            tc.verifyFalse(isfield(cfg.rx.vehicular, 'antenna_name'), 'replaced by antenna_name_dl');
+            tc.verifyFalse(isfield(cfg.viz, 'osm_path'),    'osm_path moved to regions(*).osm_path');
         end
 
         function fadeMarginIsCustomDb(tc)

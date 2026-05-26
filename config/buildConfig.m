@@ -25,32 +25,48 @@ function config = buildConfig()
 
     config = struct();
 
-    % ---- Transmitter -----------------------------------------------------
-    config.tx.frequency_hz     = 4e9;        % Hz
-    config.tx.power_dbm        = 47;         % dBm
-    config.tx.altitude_m       = 1500;       % m AGL at trajectory centroid
-                                              %   (used as fallback when
-                                              %    altitude_msl_m is empty)
-    config.tx.altitude_msl_m   = [];         % m MSL. [] -> derive from altitude_m
-                                              %   using terrain at the
-                                              %   trajectory centroid.
-    config.tx.antenna_name     = 'tx_omni';  % CSV stem under resources/antennas/
-    config.tx.boresight_az_rad = 0;          % azimuth (rad)
-    config.tx.boresight_el_rad = -pi/2;      % elevation (rad); -pi/2 = nadir
+    % ---- Transmitters (DL: airborne -> ground.  UL: ground -> airborne) --
+    % Path loss is reciprocal so the same PL is reused for both directions.
+    config.tx.frequency_hz     = 4e9;            % Hz (shared)
+    config.tx.power_air_dbm    = 47;             % aerial TX power (DL)
+    config.tx.power_gnd_dbm    = 30;             % ground  TX power (UL)
+    config.tx.altitude_m       = 1500;           % m AGL at trajectory centroid
+                                                  %   (used as fallback when
+                                                  %    altitude_msl_m is empty)
+    config.tx.altitude_msl_m   = [];             % m MSL. [] -> derive from altitude_m
+                                                  %   using terrain at the
+                                                  %   trajectory centroid.
+    % Airborne TX antenna (DL) + ground TX antenna (UL, shared by all yk"tzim).
+    config.tx.airborne.antenna_name = 'airborne_tx';
+    config.tx.ground.antenna_name   = 'ground_tx';
+    config.tx.boresight_az_rad = 0;              % azimuth (rad); aerial TX body frame
+    config.tx.boresight_el_rad = -pi/2;          % elevation (rad); -pi/2 = nadir
 
-    % ---- Receivers (two device types per rotation) -----------------------
+    % ---- Receivers (two ground device types + one airborne RX) ----------
     config.rx.placement_radius_km       = 5;     % RXs sampled within this radius of centroid
+
     config.rx.infantry.count            = 40;
     config.rx.infantry.height_m         = 1.5;
-    config.rx.infantry.antenna_name     = 'rx_infantry_omni';
+    config.rx.infantry.antenna_name_dl  = 'ground1_rx';   % 8-element patch (DL receiver)
     config.rx.infantry.boresight_az_rad = 0;
-    config.rx.infantry.boresight_el_rad = pi/2;   % zenith
+    config.rx.infantry.boresight_el_rad = pi/2;           % zenith
 
     config.rx.vehicular.count            = 20;
     config.rx.vehicular.height_m         = 2.5;
-    config.rx.vehicular.antenna_name     = 'rx_vehicular_dipole';
+    config.rx.vehicular.antenna_name_dl  = 'ground2_rx';  % 8-element patch (DL receiver)
     config.rx.vehicular.boresight_az_rad = 0;
     config.rx.vehicular.boresight_el_rad = pi/2;
+
+    % Airborne RX (UL): 16-element patch on the aircraft, boresight = nadir
+    config.rx.airborne.antenna_name_ul    = 'airborne_rx';
+    config.rx.airborne.boresight_az_rad   = 0;
+    config.rx.airborne.boresight_el_rad   = -pi/2;        % nadir
+
+    % Patch-array generator parameters (used by generatePatchArrayCsv.m and
+    % surfaced in the Antennas tab in the UI for one-click regeneration).
+    config.rx.patch.fov_in_deg  = 50;
+    config.rx.patch.fov_out_deg = 70;
+    config.rx.patch.floor_db    = -20;
 
     % ---- Propagation -----------------------------------------------------
     config.propagation.model                 = 'longley-rice';

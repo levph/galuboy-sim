@@ -64,14 +64,17 @@ function cfg = buildCfgFromUI(s)
     cfg = buildConfig();
 
     cfg.tx.frequency_hz   = s.frequency_hz;
-    cfg.tx.power_dbm      = s.power_dbm;
+    cfg.tx.power_air_dbm  = s.power_air_dbm;
+    cfg.tx.power_gnd_dbm  = s.power_gnd_dbm;
     cfg.tx.altitude_m     = s.altitude_m;
-    cfg.tx.antenna_name   = s.tx_antenna_name;
+    cfg.tx.airborne.antenna_name = s.tx_air_antenna_name;
+    cfg.tx.ground.antenna_name   = s.tx_gnd_antenna_name;
 
-    cfg.rx.infantry.count         = s.n_inf;
-    cfg.rx.infantry.antenna_name  = s.inf_antenna_name;
-    cfg.rx.vehicular.count        = s.n_veh;
-    cfg.rx.vehicular.antenna_name = s.veh_antenna_name;
+    cfg.rx.infantry.count            = s.n_inf;
+    cfg.rx.infantry.antenna_name_dl  = s.inf_antenna_name_dl;
+    cfg.rx.vehicular.count           = s.n_veh;
+    cfg.rx.vehicular.antenna_name_dl = s.veh_antenna_name_dl;
+    cfg.rx.airborne.antenna_name_ul  = s.rx_air_antenna_name_ul;
 
     if isfield(s, 'inf_height_m'), cfg.rx.infantry.height_m  = s.inf_height_m; end
     if isfield(s, 'veh_height_m'), cfg.rx.vehicular.height_m = s.veh_height_m; end

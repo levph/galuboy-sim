@@ -78,17 +78,23 @@ classdef test_availability_direction < matlab.unittest.TestCase
             cfg.flight.num_flight_steps = 8;
             cfg.tx.altitude_m           = 1500;
             cfg.tx.altitude_msl_m       = [];
-            cfg.tx.power_dbm            = 30;
+            cfg.tx.power_air_dbm        = 30;
+            cfg.tx.power_gnd_dbm        = 30;
             cfg.tx.frequency_hz         = 4e9;
-            cfg.tx.antenna_name           = 'tx_omni';
-            cfg.rx.infantry.count         = 3;
-            cfg.rx.infantry.antenna_name  = 'tx_omni';
-            cfg.rx.vehicular.count        = 0;
-            cfg.rx.vehicular.antenna_name = 'tx_omni';
+            % All-isotropic across the 5-antenna DL/UL set for predictability.
+            cfg.tx.airborne.antenna_name      = 'tx_omni';
+            cfg.tx.ground.antenna_name        = 'tx_omni';
+            cfg.rx.airborne.antenna_name_ul   = 'tx_omni';
+            cfg.rx.infantry.count             = 3;
+            cfg.rx.infantry.antenna_name_dl   = 'tx_omni';
+            cfg.rx.vehicular.count            = 0;
+            cfg.rx.vehicular.antenna_name_dl  = 'tx_omni';
 
-            ant.tx_pat  = loadAntennaPattern(cfg.tx.antenna_name,             antennas_dir);
-            ant.inf_pat = loadAntennaPattern(cfg.rx.infantry.antenna_name,    antennas_dir);
-            ant.veh_pat = loadAntennaPattern(cfg.rx.vehicular.antenna_name,   antennas_dir);
+            ant.tx_air_pat  = loadAntennaPattern(cfg.tx.airborne.antenna_name,         antennas_dir);
+            ant.tx_gnd_pat  = loadAntennaPattern(cfg.tx.ground.antenna_name,           antennas_dir);
+            ant.rx_air_pat  = loadAntennaPattern(cfg.rx.airborne.antenna_name_ul,      antennas_dir);
+            ant.rx_gnd1_pat = loadAntennaPattern(cfg.rx.infantry.antenna_name_dl,      antennas_dir);
+            ant.rx_gnd2_pat = loadAntennaPattern(cfg.rx.vehicular.antenna_name_dl,     antennas_dir);
 
             region = struct('name','test','osm_path','', ...
                 'latlim',[32.85, 32.87], 'lonlim',[35.20, 35.22], ...
@@ -101,7 +107,7 @@ classdef test_availability_direction < matlab.unittest.TestCase
                 'Latitude', 0, 'Longitude', 0, ...
                 'AntennaHeight', cfg.tx.altitude_m, ...
                 'TransmitterFrequency', cfg.tx.frequency_hz, ...
-                'TransmitterPower', 10^((cfg.tx.power_dbm - 30) / 10));
+                'TransmitterPower', 10^((cfg.tx.power_air_dbm - 30) / 10));
             [flight_lons, flight_lats] = generateTrajectory(region, cfg.flight, 0);
 
             for target = [50, 90, 99]

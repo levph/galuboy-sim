@@ -1,0 +1,18 @@
+# galuboy antenna pattern - ground TX (UL transmitter, omni)
+# All yk"tzim share the same broad omni TX antenna.
+# G(el) = 2 - 5*sin(el)^2  (peak 2 dBi at el=0, -3 dBi at el=+-pi/2)
+# 1D table — azimuth-independent.
+el_deg,gain_dbi
+-90,-3.000
+-75,-2.665
+-60,-1.750
+-45,-0.500
+-30,0.750
+-15,1.665
+0,2.000
+15,1.665
+30,0.750
+45,-0.500
+60,-1.750
+75,-2.665
+90,-3.000

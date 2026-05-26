@@ -1,38 +1,54 @@
 function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
                             flight_lons, flight_lats, ant, cfg, ...
                             flight_tilts, flight_headings)
-%RUNROTATION  Fly one trajectory, compute path-loss + link budget + availability.
+%RUNROTATION  Fly one trajectory, compute path-loss + DL/UL link budget + availability.
 %
 %   rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
 %                      flight_lons, flight_lats, ant, cfg)
 %
 %   Per-rotation streaming compute - no raw [Nf x n_rx] cube is returned.
-%   Path loss and antenna gains are evaluated, link budget is reduced to
-%   a per-RX availability fraction and a logical availability flag.
+%   Path loss and antenna gains are evaluated, link budgets are reduced to
+%   per-RX mission-availability fractions and gates in BOTH directions:
+%
+%     Prx_dl = Ptx_air + Gtx_air(angles_air->gnd) - PL + Grx_gnd{1|2}(angles_gnd->air) - margin
+%     Prx_ul = Ptx_gnd + Gtx_gnd(angles_gnd->air) - PL + Grx_air(angles_air->gnd) - margin
+%
+%   Path loss is reciprocal; antenna heights and frequency are identical
+%   between DL and UL, so PL is computed once per (TX_air, RX_gnd) pair.
 %
 %   Inputs:
 %     tx_template   txsite (position + antenna_height + freq + power
-%                   already set; lat/lon overwritten per step)
-%     rx_array      rxsite array (length n_rx)
+%                   already set; lat/lon/AntennaHeight overwritten per step).
+%                   Used as the airborne TX (DL) and as the geometry source.
+%     rx_array      rxsite array (length n_rx) for the ground RXs (DL).
 %     rx_table      table with column 'type' (categorical or string),
-%                   used to dispatch RX antenna patterns
+%                   used to dispatch ground RX antenna patterns
+%                   (infantry -> ground1_rx, vehicular -> ground2_rx).
 %     pm            propagationModel object
 %     map_name      char/string. '' to use the model's default terrain
 %                   (GMTED2010); a registered terrain name to use that.
 %     flight_lons   [1 x Nf] longitude waypoints (deg)
 %     flight_lats   [1 x Nf] latitude waypoints (deg)
-%     ant           struct with fields tx_pat, inf_pat, veh_pat
-%                   (each from loadAntennaPattern)
+%     ant           struct with fields (each from loadAntennaPattern):
+%                     ant.tx_air_pat   airborne TX pattern (DL transmitter)
+%                     ant.tx_gnd_pat   ground   TX pattern (UL transmitter)
+%                     ant.rx_air_pat   airborne RX pattern (UL receiver)
+%                     ant.rx_gnd1_pat  ground   RX pattern, infantry  (DL)
+%                     ant.rx_gnd2_pat  ground   RX pattern, vehicular (DL)
 %     cfg           full config struct
 %
 %   Returns rot:
-%     rot.frac_above    [n_rx x 1]  single, mean(Prx > MDS) over flight steps
-%                                   (continuous mission-availability metric)
-%     rot.available     [n_rx x 1]  logical, frac_above >= percentile/100
-%     rot.prx_floor_dbm [n_rx x 1]  single, lower-tail P_rx percentile
-%                                   (kept for downstream colormaps / debug;
-%                                    equivalent gate: prx_floor_dbm > MDS)
-%     rot.rx_table      echo of input rx_table (convenience for downstream)
+%     rot.frac_above_dl    [n_rx x 1]  DL mean(Prx > MDS) over flight steps
+%     rot.frac_above_ul    [n_rx x 1]  UL mean(Prx > MDS) over flight steps
+%     rot.available_dl     [n_rx x 1]  logical, frac_above_dl >= percentile/100
+%     rot.available_ul     [n_rx x 1]  logical, frac_above_ul >= percentile/100
+%     rot.available_bidi   [n_rx x 1]  logical, available_dl AND available_ul
+%     rot.prx_floor_dbm_dl [n_rx x 1]  DL lower-tail Prx percentile (dBm)
+%     rot.prx_floor_dbm_ul [n_rx x 1]  UL lower-tail Prx percentile (dBm)
+%     rot.frac_above       alias for rot.frac_above_dl    (back-compat)
+%     rot.available        alias for rot.available_dl     (back-compat)
+%     rot.prx_floor_dbm    alias for rot.prx_floor_dbm_dl (back-compat)
+%     rot.rx_table         echo of input rx_table (convenience for downstream)
 %
 %   Tricky bits:
 %     - tx_steps is built OUTSIDE the parfor; mutating txsite properties
@@ -58,8 +74,6 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     tx_steps = repmat(tx_template, 1, Nf);
 
     % --- TX altitude: hold constant MSL across the trajectory ------------
-    % Probe terrain elevation under each TX waypoint (AntennaHeight=0 so
-    % elevation() returns the ground MSL, not the aircraft MSL).
     probe = txsite('Latitude', flight_lats, 'Longitude', flight_lons, ...
                    'AntennaHeight', 0);
     if use_terrain
@@ -69,8 +83,6 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     end
     terrain_at_tx = double(terrain_at_tx(:).');     % [1 x Nf]
 
-    % Resolve target MSL. Prefer explicit altitude_msl_m; otherwise treat
-    % the legacy altitude_m as AGL at the trajectory centroid.
     if isfield(cfg.tx, 'altitude_msl_m') && ~isempty(cfg.tx.altitude_msl_m)
         target_msl = double(cfg.tx.altitude_msl_m);
     else
@@ -99,6 +111,9 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     end
 
     % --- Path-loss + geometry sweep --------------------------------------
+    % Geometry is angle(rx_array, tx_steps(i)) = direction at RX looking
+    % toward TX (RX->TX). PL is reciprocal so the same matrix is used for
+    % both DL and UL.
     PL = zeros(Nf, n_rx, 'single');
     AZ = zeros(Nf, n_rx, 'single');
     EL = zeros(Nf, n_rx, 'single');
@@ -119,28 +134,29 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     end
 
     % --- Per-step TX boresight (heading + bank-tilt) ---------------------
-    % Configured tx.boresight_{az,el}_rad is treated as a body-frame offset
-    % from (heading, nadir). Banking by signed angle phi rolls a nadir-
-    % pointing antenna off-nadir by |phi| toward azimuth heading + sign(phi)*pi/2
-    % (right of heading for phi>0). This is a small-angle perturbation around
-    % a nominally-nadir configured boresight.
     abs_tilt = abs(flight_tilts(:));            % [Nf x 1]
     sgn      = sign(flight_tilts(:));           % [Nf x 1]
     tx_az_b  = cfg.tx.boresight_az_rad + flight_headings(:) + sgn * (pi/2);
     tx_el_b  = cfg.tx.boresight_el_rad + abs_tilt;
 
+    % UL RX (airborne) shares the airframe; its boresight follows the same
+    % heading + bank perturbation.
+    rx_air_az_b = cfg.rx.airborne.boresight_az_rad + flight_headings(:) + sgn * (pi/2);
+    rx_air_el_b = cfg.rx.airborne.boresight_el_rad + abs_tilt;
+
     % --- Antenna gains (vectorized) --------------------------------------
-    % angle(rx, tx) returns the direction at RX looking toward TX (RX->TX).
-    % RX gain uses that geometry directly. TX gain needs the reciprocal
-    % direction (TX->RX): flip azimuth by pi and negate elevation.
+    % angle(rx, tx) gives the RX->TX direction. RX gain queries use that
+    % directly; TX gain queries need the reciprocal TX->RX (az+pi, -el).
     AZ_tx = mod(AZ + single(pi), single(2*pi));
     EL_tx = -EL;
-    G_tx  = applyAntennaGain(ant.tx_pat, AZ_tx, EL_tx, tx_az_b, tx_el_b);
 
-    % Per-RX dispatch mask: which RX columns are infantry vs vehicular.
-    % (Not to be confused with "infinite path loss" - this is purely about
-    % which antenna pattern to apply per device type.)
-    % rx_table.type may be categorical or string.
+    % DL TX (airborne): gain in TX->RX direction.
+    G_tx_air = applyAntennaGain(ant.tx_air_pat, AZ_tx, EL_tx, tx_az_b, tx_el_b);
+
+    % UL RX (airborne): gain in RX->TX direction = (AZ, EL) directly.
+    G_rx_air = applyAntennaGain(ant.rx_air_pat, AZ, EL, rx_air_az_b, rx_air_el_b);
+
+    % Per-RX type dispatch mask
     type_col = rx_table.type;
     if iscategorical(type_col)
         is_infantry = (type_col == 'infantry');
@@ -149,34 +165,58 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     end
     is_infantry = is_infantry(:).';   % row vector of length n_rx
 
-    G_rx = zeros(Nf, n_rx, 'single');
+    % DL RX (ground): gain in RX->TX direction = (AZ, EL) directly.
+    G_rx_gnd = zeros(Nf, n_rx, 'single');
     if any(is_infantry)
-        G_rx(:,  is_infantry) = applyAntennaGain(ant.inf_pat, ...
+        G_rx_gnd(:,  is_infantry) = applyAntennaGain(ant.rx_gnd1_pat, ...
             AZ(:,  is_infantry), EL(:,  is_infantry), ...
             cfg.rx.infantry.boresight_az_rad, cfg.rx.infantry.boresight_el_rad);
     end
     if any(~is_infantry)
-        G_rx(:, ~is_infantry) = applyAntennaGain(ant.veh_pat, ...
+        G_rx_gnd(:, ~is_infantry) = applyAntennaGain(ant.rx_gnd2_pat, ...
             AZ(:, ~is_infantry), EL(:, ~is_infantry), ...
             cfg.rx.vehicular.boresight_az_rad, cfg.rx.vehicular.boresight_el_rad);
     end
 
-    % --- Link budget + availability reduction ----------------------------
-    Pt_dbm  = single(cfg.tx.power_dbm);
+    % UL TX (ground): pattern is shared across types; gain in TX->RX
+    % direction = (AZ_tx, EL_tx); ground boresight is zenith (per type).
+    G_tx_gnd = zeros(Nf, n_rx, 'single');
+    if any(is_infantry)
+        G_tx_gnd(:,  is_infantry) = applyAntennaGain(ant.tx_gnd_pat, ...
+            AZ_tx(:,  is_infantry), EL_tx(:,  is_infantry), ...
+            cfg.rx.infantry.boresight_az_rad, cfg.rx.infantry.boresight_el_rad);
+    end
+    if any(~is_infantry)
+        G_tx_gnd(:, ~is_infantry) = applyAntennaGain(ant.tx_gnd_pat, ...
+            AZ_tx(:, ~is_infantry), EL_tx(:, ~is_infantry), ...
+            cfg.rx.vehicular.boresight_az_rad, cfg.rx.vehicular.boresight_el_rad);
+    end
+
+    % --- Link budgets + availability reduction ---------------------------
+    Pt_air  = single(cfg.tx.power_air_dbm);
+    Pt_gnd  = single(cfg.tx.power_gnd_dbm);
     fade_db = single(cfg.analysis.fade_margin_db);
-    Prx     = Pt_dbm + G_tx - PL + G_rx - fade_db;        % [Nf x n_rx]
+    threshold   = single(cfg.analysis.threshold_dbm);
+    target_frac = single(cfg.analysis.percentile) / single(100);
 
-    % Mission availability per RX: fraction of flight steps clearing MDS,
-    % gated by the configured availability target (cfg.analysis.percentile
-    % is the target in % of the rotation, e.g. 99 = "link up >=99% of time").
-    threshold      = single(cfg.analysis.threshold_dbm);
-    above          = Prx > threshold;                                       % [Nf x n_rx] logical
-    rot.frac_above = single(mean(above, 1)).';                              % [n_rx x 1] in [0,1]
-    target_frac    = single(cfg.analysis.percentile) / single(100);         % e.g. 0.99
-    rot.available  = rot.frac_above >= target_frac;                         % [n_rx x 1] logical
+    Prx_dl = Pt_air + G_tx_air - PL + G_rx_gnd - fade_db;        % [Nf x n_rx]
+    Prx_ul = Pt_gnd + G_tx_gnd - PL + G_rx_air - fade_db;        % [Nf x n_rx]
 
-    % Lower-tail Prx percentile, kept for downstream colormaps / debug.
-    % Equivalent gate: rot.available == (rot.prx_floor_dbm > threshold).
-    rot.prx_floor_dbm = prctile(Prx, 100 - cfg.analysis.percentile, 1).';   % [n_rx x 1]
+    rot.frac_above_dl    = single(mean(Prx_dl > threshold, 1)).';   % [n_rx x 1]
+    rot.frac_above_ul    = single(mean(Prx_ul > threshold, 1)).';
+    rot.available_dl     = rot.frac_above_dl >= target_frac;
+    rot.available_ul     = rot.frac_above_ul >= target_frac;
+    rot.available_bidi   = rot.available_dl & rot.available_ul;
+
+    % Lower-tail Prx percentile (kept for downstream colormaps / debug)
+    rot.prx_floor_dbm_dl = prctile(Prx_dl, 100 - cfg.analysis.percentile, 1).';
+    rot.prx_floor_dbm_ul = prctile(Prx_ul, 100 - cfg.analysis.percentile, 1).';
+
+    % Back-compat aliases: DL is the operationally limiting direction
+    % the report and most existing callers expect to read.
+    rot.frac_above    = rot.frac_above_dl;
+    rot.available     = rot.available_dl;
+    rot.prx_floor_dbm = rot.prx_floor_dbm_dl;
+
     rot.rx_table      = rx_table;
 end

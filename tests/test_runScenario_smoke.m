@@ -16,6 +16,7 @@ classdef test_runScenario_smoke < matlab.unittest.TestCase
     methods (Test)
         function smokeRun(tc)
             cfg = buildConfig();
+            cfg.regions                 = cfg.regions(strcmp({cfg.regions.name}, 'yarka'));
             cfg.flight.num_rotations    = 2;
             cfg.flight.num_flight_steps = 10;
             cfg.rx.infantry.count       = 5;
@@ -33,11 +34,23 @@ classdef test_runScenario_smoke < matlab.unittest.TestCase
             tc.verifyEqual(numel(results), 1);
 
             r = results(1);
-            tc.verifyEqual(size(r.available),     [2, 10]);
-            tc.verifyEqual(size(r.prx_floor_dbm), [2, 10]);
-            tc.verifyEqual(size(r.frac_above),    [2, 10]);
-            tc.verifyTrue(all(isfinite(r.prx_floor_dbm(:))), 'No NaN P_rx');
-            tc.verifyTrue(islogical(r.available));
+            tc.verifyEqual(size(r.available_dl),       [2, 10]);
+            tc.verifyEqual(size(r.available_ul),       [2, 10]);
+            tc.verifyEqual(size(r.available_bidi),     [2, 10]);
+            tc.verifyEqual(size(r.prx_floor_dbm_dl),   [2, 10]);
+            tc.verifyEqual(size(r.prx_floor_dbm_ul),   [2, 10]);
+            tc.verifyEqual(size(r.frac_above_dl),      [2, 10]);
+            tc.verifyEqual(size(r.frac_above_ul),      [2, 10]);
+            tc.verifyTrue(all(isfinite(r.prx_floor_dbm_dl(:))), 'No NaN P_rx_dl');
+            tc.verifyTrue(all(isfinite(r.prx_floor_dbm_ul(:))), 'No NaN P_rx_ul');
+            tc.verifyTrue(islogical(r.available_dl));
+            tc.verifyTrue(islogical(r.available_ul));
+            tc.verifyTrue(islogical(r.available_bidi));
+
+            % Back-compat aliases
+            tc.verifyEqual(r.available,     r.available_dl);
+            tc.verifyEqual(r.frac_above,    r.frac_above_dl);
+            tc.verifyEqual(r.prx_floor_dbm, r.prx_floor_dbm_dl);
         end
     end
 end

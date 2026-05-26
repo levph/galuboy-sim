@@ -3,7 +3,7 @@ function G_dbi = applyAntennaGain(pat, az_rad, el_rad, boresight_az_rad, boresig
 %
 %   G_dbi = applyAntennaGain(pat, az_rad, el_rad, boresight_az_rad, boresight_el_rad)
 %
-%   pat                 struct from loadAntennaPattern
+%   pat                 struct from loadAntennaPattern (pat.kind selects path)
 %   az_rad, el_rad      link az/el in the WORLD frame (radians)
 %   boresight_az_rad    antenna boresight azimuth (radians)
 %   boresight_el_rad    antenna boresight elevation (radians)
@@ -22,21 +22,52 @@ function G_dbi = applyAntennaGain(pat, az_rad, el_rad, boresight_az_rad, boresig
 %   table's az axis (which represents OFFSETS from boresight in the same
 %   frame and is extended to be periodic). Elevation is clamped to
 %   [-pi/2, pi/2].
+%
+%   1D patterns ignore the azimuth offset entirely — the gain depends
+%   only on elevation offset from boresight.
 
-    if pat.is_isotropic
-        G_dbi = pat.flat_gain_dbi * ones(size(az_rad), 'like', az_rad);
-        return;
+    kind = patternKind(pat);
+
+    switch kind
+        case 'isotropic'
+            G_dbi = pat.flat_gain_dbi * ones(size(az_rad), 'like', az_rad);
+            return;
+
+        case '1d'
+            el_off = el_rad - boresight_el_rad;
+            el_off = max(min(el_off, pi/2), -pi/2);
+            sz = size(az_rad);
+            % 1D gain_func key: elevation only. Pass it twice so the inner
+            % handle's signature stays uniform with the 2D case.
+            out = pat.gain_func(double(el_off(:)), double(el_off(:)));
+            G_dbi = reshape(cast(out, 'like', az_rad), sz);
+            return;
+
+        case '2d'
+            az_off = mod(az_rad - boresight_az_rad, 2*pi);   % match grid range [0, 2*pi]
+            el_off = el_rad - boresight_el_rad;
+            el_off = max(min(el_off, pi/2), -pi/2);
+
+            % griddedInterpolant accepts double; cast and cast back to preserve
+            % the input numeric type (single in the hot path). Linearize the
+            % query arrays so MATLAB doesn't issue the spurious "MESHGRID format"
+            % performance hint - our queries are scattered, not gridded.
+            sz = size(az_rad);
+            out = pat.gain_func(double(az_off(:)), double(el_off(:)));
+            G_dbi = reshape(cast(out, 'like', az_rad), sz);
+            return;
     end
+end
 
-    az_off = mod(az_rad - boresight_az_rad, 2*pi);   % match grid range [0, 2*pi]
-    el_off = el_rad - boresight_el_rad;
-    el_off = max(min(el_off, pi/2), -pi/2);
 
-    % griddedInterpolant accepts double; cast and cast back to preserve
-    % the input numeric type (single in the hot path). Linearize the
-    % query arrays so MATLAB doesn't issue the spurious "MESHGRID format"
-    % performance hint - our queries are scattered, not gridded.
-    sz = size(az_rad);
-    out = pat.gain_func(double(az_off(:)), double(el_off(:)));
-    G_dbi = reshape(cast(out, 'like', az_rad), sz);
+% -------------------------------------------------------------------------
+function kind = patternKind(pat)
+%PATTERNKIND  Resolve pat.kind with back-compat fallback to pat.is_isotropic.
+    if isfield(pat, 'kind') && ~isempty(pat.kind)
+        kind = char(pat.kind);
+    elseif isfield(pat, 'is_isotropic') && pat.is_isotropic
+        kind = 'isotropic';
+    else
+        kind = '2d';
+    end
 end

@@ -10,15 +10,22 @@ function results = runScenario(cfg, progress_cb)
 %                stage is one of: "setup" | "region" | "rotation" | "done"
 %
 %   Returns results - struct array, one entry per region:
-%     results(r).region          (struct from resolveRegion)
-%     results(r).available       [M x n_rx] logical
-%     results(r).frac_above      [M x n_rx] single  (fraction of rotation > MDS)
-%     results(r).prx_floor_dbm   [M x n_rx] single  (lower-tail P_rx percentile)
-%     results(r).dists_m         [M x n_rx] single  (distance from region centroid)
-%     results(r).rx_locations    [M x n_rx x 2] single  (lon, lat per rx per rotation)
-%     results(r).rx_types        cell {M x 1}   (categorical column per rotation)
-%     results(r).rx_heights      [M x n_rx]    (m AGL)
-%     results(r).elapsed_s       scalar
+%     results(r).region              (struct from resolveRegion)
+%     results(r).available_dl        [M x n_rx] logical  (DL  link availability)
+%     results(r).available_ul        [M x n_rx] logical  (UL  link availability)
+%     results(r).available_bidi      [M x n_rx] logical  (DL AND UL)
+%     results(r).available           [M x n_rx] logical  (alias for available_dl)
+%     results(r).frac_above_dl       [M x n_rx] single   (DL fraction of rotation > MDS)
+%     results(r).frac_above_ul       [M x n_rx] single   (UL fraction of rotation > MDS)
+%     results(r).frac_above          [M x n_rx] single   (alias for frac_above_dl)
+%     results(r).prx_floor_dbm_dl    [M x n_rx] single   (DL lower-tail P_rx percentile)
+%     results(r).prx_floor_dbm_ul    [M x n_rx] single   (UL lower-tail P_rx percentile)
+%     results(r).prx_floor_dbm       [M x n_rx] single   (alias for prx_floor_dbm_dl)
+%     results(r).dists_m             [M x n_rx] single   (distance from region centroid)
+%     results(r).rx_locations        [M x n_rx x 2] single  (lon, lat per rx per rotation)
+%     results(r).rx_types            cell {M x 1}   (categorical column per rotation)
+%     results(r).rx_heights          [M x n_rx]    (m AGL)
+%     results(r).elapsed_s           scalar
 %
 %   The full [Nf x n_rx] path-loss / az / el cube is NOT persisted -
 %   reduction to per-RX percentile happens inside runRotation.
@@ -69,9 +76,11 @@ function results = runScenario(cfg, progress_cb)
 
     % --- Antenna patterns (loaded once) -----------------------------------
     antennas_dir = fullfile(repo_root, 'resources', 'antennas');
-    ant.tx_pat  = loadAntennaPattern(cfg.tx.antenna_name,             antennas_dir);
-    ant.inf_pat = loadAntennaPattern(cfg.rx.infantry.antenna_name,    antennas_dir);
-    ant.veh_pat = loadAntennaPattern(cfg.rx.vehicular.antenna_name,   antennas_dir);
+    ant.tx_air_pat  = loadAntennaPattern(cfg.tx.airborne.antenna_name,         antennas_dir);
+    ant.tx_gnd_pat  = loadAntennaPattern(cfg.tx.ground.antenna_name,           antennas_dir);
+    ant.rx_air_pat  = loadAntennaPattern(cfg.rx.airborne.antenna_name_ul,      antennas_dir);
+    ant.rx_gnd1_pat = loadAntennaPattern(cfg.rx.infantry.antenna_name_dl,      antennas_dir);
+    ant.rx_gnd2_pat = loadAntennaPattern(cfg.rx.vehicular.antenna_name_dl,     antennas_dir);
 
     % --- Propagation model + TX template ---------------------------------
     % TimeVariabilityTolerance / SituationVariabilityTolerance are only
@@ -84,12 +93,16 @@ function results = runScenario(cfg, progress_cb)
         pm = propagationModel(cfg.propagation.model);
     end
 
+    % TX template uses the airborne TX power as a reference. The actual DL/UL
+    % link budgets reapply per-direction powers inside runRotation; MATLAB's
+    % pathloss() helper uses the TX power only as a reference for its rxsignal
+    % output, which we don't consume.
     tx_template = txsite('Name',                 'Aerial_Tx', ...
                          'Latitude',             0, ...
                          'Longitude',            0, ...
                          'AntennaHeight',        cfg.tx.altitude_m, ...
                          'TransmitterFrequency', cfg.tx.frequency_hz, ...
-                         'TransmitterPower',     10^((cfg.tx.power_dbm - 30) / 10));
+                         'TransmitterPower',     10^((cfg.tx.power_air_dbm - 30) / 10));
 
     % --- Parallel pool ----------------------------------------------------
     if cfg.parallel.enabled && isempty(gcp('nocreate'))
@@ -108,8 +121,11 @@ function results = runScenario(cfg, progress_cb)
     n_rx  = n_inf + n_veh;
 
     results(1, n_regions) = struct( ...
-        'region', struct(), 'available', logical([]), ...
-        'frac_above', [], 'prx_floor_dbm', [], ...
+        'region', struct(), ...
+        'available_dl', logical([]), 'available_ul', logical([]), ...
+        'available_bidi', logical([]), 'available', logical([]), ...
+        'frac_above_dl', [], 'frac_above_ul', [], 'frac_above', [], ...
+        'prx_floor_dbm_dl', [], 'prx_floor_dbm_ul', [], 'prx_floor_dbm', [], ...
         'dists_m', [], 'rx_locations', [], 'rx_types', {{}}, ...
         'rx_heights', [], 'elapsed_s', 0);
 
@@ -120,13 +136,17 @@ function results = runScenario(cfg, progress_cb)
                 sprintf("region %d/%d (%s)", r, n_regions, region.name));
         end
 
-        avail_mat   = false(M, n_rx);
-        frac_mat    = zeros(M, n_rx, 'single');
-        floor_mat   = zeros(M, n_rx, 'single');
-        dists_mat   = zeros(M, n_rx, 'single');
-        loc_mat     = zeros(M, n_rx, 2, 'single');
-        types_cell  = cell(M, 1);
-        height_mat  = zeros(M, n_rx, 'single');
+        avail_dl_mat   = false(M, n_rx);
+        avail_ul_mat   = false(M, n_rx);
+        avail_bidi_mat = false(M, n_rx);
+        frac_dl_mat    = zeros(M, n_rx, 'single');
+        frac_ul_mat    = zeros(M, n_rx, 'single');
+        floor_dl_mat   = zeros(M, n_rx, 'single');
+        floor_ul_mat   = zeros(M, n_rx, 'single');
+        dists_mat      = zeros(M, n_rx, 'single');
+        loc_mat        = zeros(M, n_rx, 2, 'single');
+        types_cell     = cell(M, 1);
+        height_mat     = zeros(M, n_rx, 'single');
 
         t_start = tic;
         for m = 1:M
@@ -139,32 +159,46 @@ function results = runScenario(cfg, progress_cb)
                               flight_lons, flight_lats, ant, cfg, ...
                               flight_tilts, flight_headings);
 
-            avail_mat(m, :)   = rot.available(:).';
-            frac_mat(m, :)    = single(rot.frac_above(:).');
-            floor_mat(m, :)   = single(rot.prx_floor_dbm(:).');
-            loc_mat(m, :, 1)  = single(rx_table.lon(:).');
-            loc_mat(m, :, 2)  = single(rx_table.lat(:).');
-            dists_mat(m, :)   = single(distanceFromCentroid( ...
+            avail_dl_mat(m, :)   = rot.available_dl(:).';
+            avail_ul_mat(m, :)   = rot.available_ul(:).';
+            avail_bidi_mat(m, :) = rot.available_bidi(:).';
+            frac_dl_mat(m, :)    = single(rot.frac_above_dl(:).');
+            frac_ul_mat(m, :)    = single(rot.frac_above_ul(:).');
+            floor_dl_mat(m, :)   = single(rot.prx_floor_dbm_dl(:).');
+            floor_ul_mat(m, :)   = single(rot.prx_floor_dbm_ul(:).');
+            loc_mat(m, :, 1)     = single(rx_table.lon(:).');
+            loc_mat(m, :, 2)     = single(rx_table.lat(:).');
+            dists_mat(m, :)      = single(distanceFromCentroid( ...
                 region.lonlim, region.latlim, [rx_table.lon, rx_table.lat]));
-            types_cell{m}     = rx_table.type;
-            height_mat(m, :)  = single(rx_table.height_m(:).');
+            types_cell{m}        = rx_table.type;
+            height_mat(m, :)     = single(rx_table.height_m(:).');
 
             if has_cb
                 progress_cb("rotation", r, n_regions, m, M, ...
-                    sprintf("region %d/%d  rotation %d/%d  (avail=%.1f%%)", ...
-                        r, n_regions, m, M, 100 * mean(rot.available)));
+                    sprintf("region %d/%d  rotation %d/%d  (DL=%.1f%%  UL=%.1f%%  both=%.1f%%)", ...
+                        r, n_regions, m, M, ...
+                        100 * mean(rot.available_dl), ...
+                        100 * mean(rot.available_ul), ...
+                        100 * mean(rot.available_bidi)));
             end
         end
 
-        results(r).region        = region;
-        results(r).available     = avail_mat;
-        results(r).frac_above    = frac_mat;
-        results(r).prx_floor_dbm = floor_mat;
-        results(r).dists_m       = dists_mat;
-        results(r).rx_locations  = loc_mat;
-        results(r).rx_types      = types_cell;
-        results(r).rx_heights    = height_mat;
-        results(r).elapsed_s     = toc(t_start);
+        results(r).region            = region;
+        results(r).available_dl      = avail_dl_mat;
+        results(r).available_ul      = avail_ul_mat;
+        results(r).available_bidi    = avail_bidi_mat;
+        results(r).available         = avail_dl_mat;       % back-compat alias
+        results(r).frac_above_dl     = frac_dl_mat;
+        results(r).frac_above_ul     = frac_ul_mat;
+        results(r).frac_above        = frac_dl_mat;        % back-compat alias
+        results(r).prx_floor_dbm_dl  = floor_dl_mat;
+        results(r).prx_floor_dbm_ul  = floor_ul_mat;
+        results(r).prx_floor_dbm     = floor_dl_mat;       % back-compat alias
+        results(r).dists_m           = dists_mat;
+        results(r).rx_locations      = loc_mat;
+        results(r).rx_types          = types_cell;
+        results(r).rx_heights        = height_mat;
+        results(r).elapsed_s         = toc(t_start);
     end
 
     % --- Save -------------------------------------------------------------

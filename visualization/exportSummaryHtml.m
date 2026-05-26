@@ -139,15 +139,18 @@ end
 function html = buildConfigSections(cfg)
     groups = {
         'Transmitter', {
-            'Frequency',         sprintf('%.3f MHz', cfg.tx.frequency_hz/1e6)
-            'Power',             sprintf('%.1f dBm',  cfg.tx.power_dbm)
-            'Altitude (target)', formatTxAltitude(cfg.tx)
-            'Antenna',           cfg.tx.antenna_name
+            'Frequency',          sprintf('%.3f MHz', cfg.tx.frequency_hz/1e6)
+            'Power (air, DL)',    sprintf('%.1f dBm',  cfg.tx.power_air_dbm)
+            'Power (gnd, UL)',    sprintf('%.1f dBm',  cfg.tx.power_gnd_dbm)
+            'Altitude (target)',  formatTxAltitude(cfg.tx)
+            'Airborne antenna',   cfg.tx.airborne.antenna_name
+            'Ground   antenna',   cfg.tx.ground.antenna_name
         }
         'Receivers', {
-            'Infantry',         sprintf('%d  &middot;  %.1f m  &middot;  %s', cfg.rx.infantry.count,  cfg.rx.infantry.height_m,  cfg.rx.infantry.antenna_name)
-            'Vehicular',        sprintf('%d  &middot;  %.1f m  &middot;  %s', cfg.rx.vehicular.count, cfg.rx.vehicular.height_m, cfg.rx.vehicular.antenna_name)
-            'Placement radius', sprintf('%.2f km', cfg.rx.placement_radius_km)
+            'Infantry',          sprintf('%d  &middot;  %.1f m  &middot;  %s', cfg.rx.infantry.count,  cfg.rx.infantry.height_m,  cfg.rx.infantry.antenna_name_dl)
+            'Vehicular',         sprintf('%d  &middot;  %.1f m  &middot;  %s', cfg.rx.vehicular.count, cfg.rx.vehicular.height_m, cfg.rx.vehicular.antenna_name_dl)
+            'Airborne RX (UL)',  cfg.rx.airborne.antenna_name_ul
+            'Placement radius',  sprintf('%.2f km', cfg.rx.placement_radius_km)
         }
         'Propagation', propagationRows(cfg)
         'Analysis', {

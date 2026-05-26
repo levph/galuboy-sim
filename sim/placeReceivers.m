@@ -6,8 +6,8 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
 %
 %   region     struct from resolveRegion (latlim, lonlim, ...)
 %   rx_cfg     config.rx struct with fields:
-%                infantry.count, infantry.height_m, infantry.antenna_name,
-%                vehicular.count, vehicular.height_m, vehicular.antenna_name
+%                infantry.count, infantry.height_m, infantry.antenna_name_dl,
+%                vehicular.count, vehicular.height_m, vehicular.antenna_name_dl
 %   buildings  optional cell array of [N x 2] polygons (lon, lat) used to
 %              reject samples that fall inside a building footprint. {} or
 %              omitted disables the check.
@@ -15,10 +15,12 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
 %   Returns:
 %     rx_array  rxsite array, length n_inf + n_veh, with VECTOR
 %               'AntennaHeight' (R2021b+ supports this).
-%     rx_table  table with columns: lon, lat, type, height_m, antenna_name
+%     rx_table  table with columns: lon, lat, type, height_m, antenna_name_dl
 %
 %   Order: infantry first, vehicular second. type is a categorical
-%   ("infantry" | "vehicular").
+%   ("infantry" | "vehicular"). The antenna_name_dl column carries the
+%   DL receiver antenna name; the ground TX antenna is shared across
+%   types (config.tx.ground.antenna_name).
 
     if nargin < 3 || isempty(buildings)
         buildings = {};
@@ -78,13 +80,13 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
         [repmat("infantry",  n_inf, 1); repmat("vehicular", n_veh, 1)], ...
         ["infantry", "vehicular"]);
 
-    height_m     = [repmat(rx_cfg.infantry.height_m, n_inf, 1);
-                    repmat(rx_cfg.vehicular.height_m, n_veh, 1)];
-    antenna_name = [repmat(string(rx_cfg.infantry.antenna_name),  n_inf, 1);
-                    repmat(string(rx_cfg.vehicular.antenna_name), n_veh, 1)];
+    height_m        = [repmat(rx_cfg.infantry.height_m, n_inf, 1);
+                       repmat(rx_cfg.vehicular.height_m, n_veh, 1)];
+    antenna_name_dl = [repmat(string(rx_cfg.infantry.antenna_name_dl),  n_inf, 1);
+                       repmat(string(rx_cfg.vehicular.antenna_name_dl), n_veh, 1)];
 
-    rx_table = table(lons, lats, type, height_m, antenna_name, ...
-                     'VariableNames', {'lon','lat','type','height_m','antenna_name'});
+    rx_table = table(lons, lats, type, height_m, antenna_name_dl, ...
+                     'VariableNames', {'lon','lat','type','height_m','antenna_name_dl'});
 
     % Single rxsite array with vector AntennaHeight - same pattern as
     % freq-planner's gnd_h construction. rxsite requires ROW vectors.
