@@ -32,14 +32,15 @@ classdef test_runRotation_dl_ul < matlab.unittest.TestCase
             cfg.rx.vehicular.count      = 5;
 
             % Use one of the override-bounded regions (no OSM file required)
-            % and lower the placement radius so we stay inside the dynamic
-            % range of the link budget.
+            % and lower the placement diameter so we stay inside the
+            % dynamic range of the link budget.
             override_mask = arrayfun(@(rg) ~isempty(rg.latlim_override), cfg.regions);
             override_idx  = find(override_mask, 1);
             tc.assumeNotEmpty(override_idx, 'No override-bounded region in config');
-            cfg.regions                 = cfg.regions(override_idx);
-            cfg.rx.placement_radius_km  = 3;
-            cfg.io.results_dir          = fullfile(tempdir, 'galuboy_dl_ul');
+            cfg.regions                  = cfg.regions(override_idx);
+            cfg.regions.osm_path         = '';            % skip OSM building load
+            cfg.rx.placement_diameter_km = 6;             % 3 km radius equivalent
+            cfg.io.results_dir           = fullfile(tempdir, 'galuboy_dl_ul');
 
             results = runScenario(cfg);
 

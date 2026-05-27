@@ -95,8 +95,8 @@ function galuboySimApp()
         uieditfield(p, 'numeric', 'Limits', [10, 1e6], 'Value', cfg0.flight.lemniscate_length_m));
     handles.maxTilt  = addRow(fg, 23, 'Max tilt (deg)', @(p) ...
         uispinner(p, 'Limits', [0, 89], 'Value', cfg0.flight.max_tilt_deg, 'Step', 1));
-    handles.placeKm  = addRow(fg, 24, 'RX placement radius (km)', @(p) ...
-        uieditfield(p, 'numeric', 'Limits', [0.01, 500], 'Value', cfg0.rx.placement_radius_km));
+    handles.placeKm  = addRow(fg, 24, 'RX placement diameter (km)', @(p) ...
+        uieditfield(p, 'numeric', 'Limits', [0.01, 500], 'Value', cfg0.rx.placement_diameter_km));
 
     progPanel = uipanel(g, 'Title', 'Progress');
     progPanel.Layout.Row    = [1 2];
@@ -142,6 +142,10 @@ function galuboySimApp()
 
     % --- Antennas tab (inspect/edit per-antenna patterns) ----------------
     handles.antennasDir = antennas_dir;
+    % Stash early so antennaCsvPath (called from buildAntennasTab) can find
+    % handles.antennasDir via getappdata. The final stash at end of function
+    % overwrites this with the fully-populated handles struct.
+    setappdata(fig, 'handles', handles);
     buildAntennasTab(tabAnt, ant_names);
 
     btnPanel = uipanel(g, 'BorderType', 'none');
@@ -275,7 +279,7 @@ function s = readForm(h)
         'num_rotations',           h.numRot.Value, ...
         'lemniscate_length_m',     h.lemLenM.Value, ...
         'max_tilt_deg',            h.maxTilt.Value, ...
-        'placement_radius_km',     h.placeKm.Value);
+        'placement_diameter_km',   h.placeKm.Value);
 end
 
 
@@ -329,7 +333,11 @@ function onLoadCfg(h)
     if ismember('num_flight_steps',        fp), h.flightSteps.Value  = s.num_flight_steps;               end
     if ismember('num_rotations',           fp), h.numRot.Value       = s.num_rotations;                  end
     if ismember('lemniscate_length_m',     fp), h.lemLenM.Value      = s.lemniscate_length_m;            end
-    if ismember('placement_radius_km',     fp), h.placeKm.Value      = s.placement_radius_km;            end
+    % Accept both the new placement_diameter_km and the legacy
+    % placement_radius_km (older saved JSON form states); the latter is
+    % doubled because the previous semantic was radius.
+    if ismember('placement_diameter_km',   fp), h.placeKm.Value      = s.placement_diameter_km;          end
+    if ismember('placement_radius_km',     fp), h.placeKm.Value      = 2 * s.placement_radius_km;        end
     if ismember('max_tilt_deg',            fp), h.maxTilt.Value      = s.max_tilt_deg;                   end
 
     h.statusLbl.Text = sprintf('Loaded %s', file);

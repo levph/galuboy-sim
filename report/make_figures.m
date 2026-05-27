@@ -23,10 +23,6 @@ if ~exist(fig_dir, 'dir'), mkdir(fig_dir); end
 % =========================================================================
 cfg = buildConfig();
 
-% Drop 'yarka' (OSM-driven default) - keep the 7 terrain regions:
-% urban_suburban_01..03, forest_01, mountain_01..02, rural_open_01
-cfg.regions = cfg.regions(~strcmp({cfg.regions.name}, 'yarka'));
-
 % Reduce flight steps for tractable runtime (50 instead of 100).
 % **Remove this line for the on-prem real-parameter run.**
 cfg.flight.num_flight_steps = 50;

@@ -36,14 +36,15 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
     end
 
     % Decide sampling mode once (disk vs bbox) so the per-sample helper
-    % only does the math.
-    use_disk = isfield(rx_cfg, 'placement_radius_km') ...
-            && ~isempty(rx_cfg.placement_radius_km) ...
-            && rx_cfg.placement_radius_km > 0;
+    % only does the math. placement_diameter_km is the user-facing knob;
+    % the disk radius is half of that.
+    use_disk = isfield(rx_cfg, 'placement_diameter_km') ...
+            && ~isempty(rx_cfg.placement_diameter_km) ...
+            && rx_cfg.placement_diameter_km > 0;
     if use_disk
         sampler_ctx.clat = region.center_lat;
         sampler_ctx.clon = region.center_lon;
-        sampler_ctx.R_m  = rx_cfg.placement_radius_km * 1000;
+        sampler_ctx.R_m  = (rx_cfg.placement_diameter_km / 2) * 1000;
         sampler_ctx.m_per_deg_lat = 111320;
         sampler_ctx.m_per_deg_lon = 111320 * cosd(sampler_ctx.clat);
     else

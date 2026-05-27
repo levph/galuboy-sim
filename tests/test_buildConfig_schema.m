@@ -48,8 +48,13 @@ classdef test_buildConfig_schema < matlab.unittest.TestCase
             tc.verifyTrue(all(isfield(cfg.propagation, {'model','time_variability', ...
                 'situation_variability','terrain_name','use_terrain'})));
 
-            % regions defaults to a single Yarka entry
-            tc.verifyEqual(cfg.regions(1).name, 'yarka');
+            % regions: 7 northern-Israel bboxes
+            % (3 urban_suburban + forest + 2 mountain + rural_open).
+            % yarka was removed; the suburban entries carry their own OSM files.
+            tc.verifyEqual(numel(cfg.regions), 7);
+            tc.verifyTrue(any(strcmp({cfg.regions.name}, 'urban_suburban_01')));
+            tc.verifyFalse(any(strcmp({cfg.regions.name}, 'yarka')), ...
+                'yarka should no longer be in the default region set');
         end
 
         function retiredFieldsAbsent(tc)

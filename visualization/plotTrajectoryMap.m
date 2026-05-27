@@ -1,17 +1,18 @@
-function plotTrajectoryMap(region, lons, lats, rx_table, target_axes, circle_km)
+function plotTrajectoryMap(region, lons, lats, rx_table, target_axes, diameter_km)
 %PLOTTRAJECTORYMAP  Render the figure-8 flight path and receiver positions.
 %
 %   plotTrajectoryMap(region, lons, lats, rx_table, target_axes)
-%   plotTrajectoryMap(..., circle_km)
+%   plotTrajectoryMap(..., diameter_km)
 %
-%   region       struct from resolveRegion (uses lonlim, latlim, name)
-%   lons, lats   trajectory waypoints (1 x Nf, deg)
-%   rx_table     table from placeReceivers (columns: lon, lat, type)
-%   target_axes  axes handle to draw into (UI use)
-%   circle_km    optional radius (km) of a reference circle drawn around
-%                the region centroid. Pass [] or 0 to skip.
+%   region        struct from resolveRegion (uses lonlim, latlim, name)
+%   lons, lats    trajectory waypoints (1 x Nf, deg)
+%   rx_table      table from placeReceivers (columns: lon, lat, type)
+%   target_axes   axes handle to draw into (UI use)
+%   diameter_km   optional DIAMETER (km) of the RX placement disk drawn
+%                 as a reference circle around the centroid. Pass [] or 0
+%                 to skip. The circle's radius on the map is diameter/2.
 
-    if nargin < 6, circle_km = []; end
+    if nargin < 6, diameter_km = []; end
 
     ax = target_axes;
     cla(ax);
@@ -35,19 +36,20 @@ function plotTrajectoryMap(region, lons, lats, rx_table, target_axes, circle_km)
          '-', 'Color', [0.4 0.4 0.4], 'LineWidth', 0.75, ...
          'DisplayName', 'region bbox');
 
-    % Reference circle around centroid
-    if ~isempty(circle_km) && circle_km > 0
+    % Reference circle (RX placement disk) around centroid
+    if ~isempty(diameter_km) && diameter_km > 0
         clat = 0.5 * (region.latlim(1) + region.latlim(2));
         clon = 0.5 * (region.lonlim(1) + region.lonlim(2));
         if isfield(region, 'center_lat'), clat = region.center_lat; end
         if isfield(region, 'center_lon'), clon = region.center_lon; end
         m_per_deg_lat = 111320;
         m_per_deg_lon = 111320 * cosd(clat);
+        radius_m = (diameter_km / 2) * 1000;
         th = linspace(0, 2*pi, 180);
-        circ_lon = clon + (circle_km * 1000 / m_per_deg_lon) * cos(th);
-        circ_lat = clat + (circle_km * 1000 / m_per_deg_lat) * sin(th);
+        circ_lon = clon + (radius_m / m_per_deg_lon) * cos(th);
+        circ_lat = clat + (radius_m / m_per_deg_lat) * sin(th);
         plot(ax, circ_lon, circ_lat, '--', 'Color', [0.85 0.20 0.20], ...
-             'LineWidth', 1.0, 'DisplayName', sprintf('%g km circle', circle_km));
+             'LineWidth', 1.0, 'DisplayName', sprintf('%g km diameter', diameter_km));
         plot(ax, clon, clat, '+', 'MarkerSize', 8, 'LineWidth', 1.2, ...
              'Color', [0.85 0.20 0.20], 'HandleVisibility', 'off');
     end

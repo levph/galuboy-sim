@@ -33,11 +33,11 @@ function [results, cfg] = runFromUI(form_state, html_panel, axes_hist, axes_map,
         region    = resolveRegion(cfg.regions(1), repo_root);
         [lons, lats] = generateTrajectory(region, cfg.flight, 0);
         [~, rx_table] = placeReceivers(region, cfg.rx);
-        circle_km = [];
-        if isfield(cfg.rx, 'placement_radius_km')
-            circle_km = cfg.rx.placement_radius_km;
+        diameter_km = [];
+        if isfield(cfg.rx, 'placement_diameter_km')
+            diameter_km = cfg.rx.placement_diameter_km;
         end
-        plotTrajectoryMap(region, lons, lats, rx_table, axes_traj, circle_km);
+        plotTrajectoryMap(region, lons, lats, rx_table, axes_traj, diameter_km);
         drawnow;
     end
 
@@ -91,7 +91,8 @@ function cfg = buildCfgFromUI(s)
     if isfield(s, 'lemniscate_length_m'),  cfg.flight.lemniscate_length_m  = s.lemniscate_length_m;  end
     if isfield(s, 'lemniscate_scale_deg'), cfg.flight.lemniscate_scale_deg = s.lemniscate_scale_deg; end
     if isfield(s, 'max_tilt_deg'),         cfg.flight.max_tilt_deg         = s.max_tilt_deg;         end
-    if isfield(s, 'placement_radius_km'),  cfg.rx.placement_radius_km      = s.placement_radius_km;  end
+    if isfield(s, 'placement_diameter_km'), cfg.rx.placement_diameter_km   = s.placement_diameter_km;   end
+    if isfield(s, 'placement_radius_km'),   cfg.rx.placement_diameter_km   = 2 * s.placement_radius_km; end  % legacy
 
     % Filter regions to the selected subset. Accept the new region_names
     % cellstr (from the multi-select listbox) or the legacy single

@@ -5,25 +5,26 @@ classdef test_runScenario_smoke < matlab.unittest.TestCase
         function checkToolboxes(tc)
             tc.assumeTrue(exist('propagationModel', 'file') == 2, ...
                 'propagationModel not available - skipping');
-
-            this_dir = fileparts(mfilename('fullpath'));
-            repo     = fileparts(this_dir);
-            tc.assumeTrue(isfile(fullfile(repo, 'resources', 'osm', 'yarka.osm')), ...
-                'yarka.osm not present - skipping smoke test');
         end
     end
 
     methods (Test)
         function smokeRun(tc)
             cfg = buildConfig();
-            cfg.regions                 = cfg.regions(strcmp({cfg.regions.name}, 'yarka'));
+            % Run against a single override-bounded region (no OSM file
+            % required) so the smoke test is portable across worktrees.
+            override_mask = arrayfun(@(rg) ~isempty(rg.latlim_override), cfg.regions);
+            override_idx  = find(override_mask, 1);
+            tc.assertNotEmpty(override_idx, 'No override-bounded region in config');
+            cfg.regions                 = cfg.regions(override_idx);
+            cfg.regions.osm_path        = '';            % skip OSM building load
             cfg.flight.num_rotations    = 2;
             cfg.flight.num_flight_steps = 10;
             cfg.rx.infantry.count       = 5;
             cfg.rx.vehicular.count      = 5;
-            cfg.propagation.use_terrain = false;   % skip DT2 in smoke
+            cfg.propagation.use_terrain = false;         % skip DT2 in smoke
             cfg.propagation.model       = 'freespace';
-            cfg.parallel.enabled        = false;   % avoid parpool startup
+            cfg.parallel.enabled        = false;         % avoid parpool startup
             cfg.io.results_dir          = fullfile(tempdir, 'galuboy_smoke');
 
             t0 = tic;

@@ -31,8 +31,11 @@ region_names = arrayfun(@(r) string(r.region.name), results);
 fprintf('[render_figures] Loaded %d regions: %s\n', ...
         numel(results), strjoin(region_names, ', '));
 
-% Helper: extract per-region placement radius (km)
-get_radius_km = @(r) double(r.placement_radius_km);
+% Helper: extract per-region placement diameter (km). Accept either the
+% new placement_diameter_km field or the legacy placement_radius_km (in
+% which case it is doubled to convert radius -> diameter).
+get_diameter_km = @(r) ...
+    double(getfieldOrDoubleLegacy(r, 'placement_diameter_km', 'placement_radius_km'));
 
 % Suburban vs non-suburban partition matches the run_for_report.m split
 is_suburban = startsWith(region_names, "urban_suburban");
@@ -43,23 +46,23 @@ is_suburban = startsWith(region_names, "urban_suburban");
 for k = 1:numel(results)
     r = results(k);
     region = r.region;
-    radius = get_radius_km(r);
+    diameter = get_diameter_km(r);
     name   = char(region.name);
 
-    fprintf('[render_figures] %s (%.0f km)\n', name, radius);
+    fprintf('[render_figures] %s (%.0f km diameter)\n', name, diameter);
 
     % --- Trajectory + RX layout --------------------------------------
     [flight_lons, flight_lats, ~, ~] = generateTrajectory(region, cfg.flight, 0);
     cfg_focal = cfg;
-    cfg_focal.rx.placement_radius_km = radius;
+    cfg_focal.rx.placement_diameter_km = diameter;
     [~, rx_table] = placeReceivers(region, cfg_focal.rx);
 
     f = makeFig([100 100 1100 700]);
     ax = axes('Parent', f);
-    plotTrajectoryMap(region, flight_lons, flight_lats, rx_table, ax, radius);
+    plotTrajectoryMap(region, flight_lons, flight_lats, rx_table, ax, diameter);
     set(ax, 'FontSize', 11);
-    title(ax, sprintf('Trajectory + RX layout  (%s, %.0f km radius)', ...
-          name, radius), 'FontSize', 13, 'FontWeight', 'normal');
+    title(ax, sprintf('Trajectory + RX layout  (%s, %.0f km diameter)', ...
+          name, diameter), 'FontSize', 13, 'FontWeight', 'normal');
     exportgraphics(f, fullfile(fig_dir, sprintf('fig_%s_trajectory.png', name)), ...
                    'Resolution', 300, 'BackgroundColor', 'white');
     close(f);
@@ -77,8 +80,8 @@ for k = 1:numel(results)
     xlabel(ax, 'Longitude (deg)', 'FontSize', 12);
     ylabel(ax, 'Latitude (deg)',  'FontSize', 12);
     overall_bidi = 100 * mean(r.available_bidi(:));
-    title(ax, sprintf('Bi-directional availability - %s  (%.0f km, %.1f%% DL\\cap UL)', ...
-          name, radius, overall_bidi), 'FontSize', 13, 'FontWeight', 'normal');
+    title(ax, sprintf('Bi-directional availability - %s  (%.0f km diameter, %.1f%% DL\\cap UL)', ...
+          name, diameter, overall_bidi), 'FontSize', 13, 'FontWeight', 'normal');
     set(ax, 'FontSize', 11);
     exportgraphics(f, fullfile(fig_dir, sprintf('fig_%s_availability_map.png', name)), ...
                    'Resolution', 300, 'BackgroundColor', 'white');
@@ -194,4 +197,19 @@ function f = makeFig(pos)
     catch
     end
     set(f, 'InvertHardcopy', 'off', 'PaperPositionMode', 'auto');
+end
+
+
+function v = getfieldOrDoubleLegacy(s, new_field, legacy_field)
+%GETFIELDORDOUBLELEGACY  Read new_field if present, else 2*legacy_field.
+%   Lets a results file that was saved under the old placement_radius_km
+%   convention still render correctly after the rename to
+%   placement_diameter_km. The doubling converts radius -> diameter.
+    if isfield(s, new_field)
+        v = s.(new_field);
+    elseif isfield(s, legacy_field)
+        v = 2 * s.(legacy_field);
+    else
+        v = NaN;
+    end
 end

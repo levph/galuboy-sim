@@ -150,7 +150,7 @@ function html = buildConfigSections(cfg)
             'Infantry',          sprintf('%d  &middot;  %.1f m  &middot;  %s', cfg.rx.infantry.count,  cfg.rx.infantry.height_m,  cfg.rx.infantry.antenna_name_dl)
             'Vehicular',         sprintf('%d  &middot;  %.1f m  &middot;  %s', cfg.rx.vehicular.count, cfg.rx.vehicular.height_m, cfg.rx.vehicular.antenna_name_dl)
             'Airborne RX (UL)',  cfg.rx.airborne.antenna_name_ul
-            'Placement radius',  sprintf('%.2f km', cfg.rx.placement_radius_km)
+            'Placement diameter', sprintf('%.2f km', cfg.rx.placement_diameter_km)
         }
         'Propagation', propagationRows(cfg)
         'Analysis', {

@@ -145,16 +145,36 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     rx_air_el_b = cfg.rx.airborne.boresight_el_rad + abs_tilt;
 
     % --- Antenna gains (vectorized) --------------------------------------
-    % angle(rx, tx) gives the RX->TX direction. RX gain queries use that
-    % directly; TX gain queries need the reciprocal TX->RX (az+pi, -el).
+    % Antenna gain pattern G(theta) is a function of direction in the
+    % antenna's own body frame -- "where is the OTHER endpoint, as seen
+    % from me". By reciprocity this is the same function whether the
+    % antenna is acting as TX or RX. So the right query direction is
+    % determined by WHERE the antenna physically sits, not by its role:
+    %
+    %   angle(rx_array, tx) returns the direction at the GROUND site
+    %   looking toward the AIR site = "where is air, viewed from ground"
+    %   = (AZ, EL).
+    %
+    %   The reciprocal "where is ground, viewed from air" = (AZ+pi, -EL)
+    %   = (AZ_tx, EL_tx).
+    %
+    % Therefore:
+    %   - Any antenna on the AIRBORNE side (DL TX, UL RX) queries at
+    %     (AZ_tx, EL_tx).
+    %   - Any antenna on the GROUND   side (DL RX, UL TX) queries at
+    %     (AZ,    EL).
+    %
+    % The earlier rule "TX queries flip / RX queries don't" was wrong in
+    % general -- it happened to be right for DL only because air==TX
+    % there. Locked by test_runRotation_ul_frame.
     AZ_tx = mod(AZ + single(pi), single(2*pi));
     EL_tx = -EL;
 
-    % DL TX (airborne): gain in TX->RX direction.
+    % DL TX (airborne) -- airborne side -> flipped direction.
     G_tx_air = applyAntennaGain(ant.tx_air_pat, AZ_tx, EL_tx, tx_az_b, tx_el_b);
 
-    % UL RX (airborne): gain in RX->TX direction = (AZ, EL) directly.
-    G_rx_air = applyAntennaGain(ant.rx_air_pat, AZ, EL, rx_air_az_b, rx_air_el_b);
+    % UL RX (airborne) -- airborne side -> flipped direction.
+    G_rx_air = applyAntennaGain(ant.rx_air_pat, AZ_tx, EL_tx, rx_air_az_b, rx_air_el_b);
 
     % Per-RX type dispatch mask
     type_col = rx_table.type;
@@ -165,7 +185,7 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     end
     is_infantry = is_infantry(:).';   % row vector of length n_rx
 
-    % DL RX (ground): gain in RX->TX direction = (AZ, EL) directly.
+    % DL RX (ground) -- ground side -> direct direction.
     G_rx_gnd = zeros(Nf, n_rx, 'single');
     if any(is_infantry)
         G_rx_gnd(:,  is_infantry) = applyAntennaGain(ant.rx_gnd1_pat, ...
@@ -178,17 +198,18 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
             cfg.rx.vehicular.boresight_az_rad, cfg.rx.vehicular.boresight_el_rad);
     end
 
-    % UL TX (ground): pattern is shared across types; gain in TX->RX
-    % direction = (AZ_tx, EL_tx); ground boresight is zenith (per type).
+    % UL TX (ground) -- ground side -> direct direction. Pattern is
+    % shared across infantry/vehicular; boresight is per-type (both
+    % default to zenith).
     G_tx_gnd = zeros(Nf, n_rx, 'single');
     if any(is_infantry)
         G_tx_gnd(:,  is_infantry) = applyAntennaGain(ant.tx_gnd_pat, ...
-            AZ_tx(:,  is_infantry), EL_tx(:,  is_infantry), ...
+            AZ(:,  is_infantry), EL(:,  is_infantry), ...
             cfg.rx.infantry.boresight_az_rad, cfg.rx.infantry.boresight_el_rad);
     end
     if any(~is_infantry)
         G_tx_gnd(:, ~is_infantry) = applyAntennaGain(ant.tx_gnd_pat, ...
-            AZ_tx(:, ~is_infantry), EL_tx(:, ~is_infantry), ...
+            AZ(:, ~is_infantry), EL(:, ~is_infantry), ...
             cfg.rx.vehicular.boresight_az_rad, cfg.rx.vehicular.boresight_el_rad);
     end
 
