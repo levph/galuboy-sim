@@ -44,16 +44,37 @@ function G_dbi = applyAntennaGain(pat, az_rad, el_rad, boresight_az_rad, boresig
             return;
 
         case '2d'
-            az_off = mod(az_rad - boresight_az_rad, 2*pi);   % match grid range [0, 2*pi]
-            el_off = el_rad - boresight_el_rad;
-            el_off = max(min(el_off, pi/2), -pi/2);
+            % Compute the TRUE off-boresight angle (theta) as the 3D
+            % angular distance between the query direction and the boresight
+            % using the spherical law of cosines:
+            %
+            %   cos(theta) = cos(el)*cos(el_b)*cos(az - az_b) + sin(el)*sin(el_b)
+            %
+            % This is necessary because the naive (mod(az-az_b,2pi), el-el_b)
+            % formulation is DEGENERATE for nadir- and zenith-pointing antennas:
+            % when boresight_el = +-pi/2, the boresight azimuth is undefined and
+            % mod(az_tx - 0, 2*pi) = pi for half the headings even when the query
+            % direction is exactly at the boresight pole.  With a 70-degree fov,
+            % that gives floor gain (-20 dBi) on every such step, making UL and
+            % DL antenna gains appear ~32 dB weaker than they actually are.
+            %
+            % Using theta in both axes of the min(G_az,G_el) pattern reduces it
+            % to min(f(theta),f(theta)) = f(theta), the correct 1D profile.
+            dot_qb = cos(el_rad) .* cos(boresight_el_rad) ...
+                  .* cos(az_rad  -  boresight_az_rad) ...
+                  +  sin(el_rad) .* sin(boresight_el_rad);
+
+            % Clamp numerically before acos (floating-point can exceed +-1)
+            one = ones(1, 1, 'like', dot_qb);
+            dot_qb = max(-one, min(one, dot_qb));
+            theta  = acos(dot_qb);          % off-boresight angle in [0, pi]
 
             % griddedInterpolant accepts double; cast and cast back to preserve
             % the input numeric type (single in the hot path). Linearize the
             % query arrays so MATLAB doesn't issue the spurious "MESHGRID format"
             % performance hint - our queries are scattered, not gridded.
-            sz = size(az_rad);
-            out = pat.gain_func(double(az_off(:)), double(el_off(:)));
+            sz  = size(az_rad);
+            out = pat.gain_func(double(theta(:)), double(theta(:)));
             G_dbi = reshape(cast(out, 'like', az_rad), sz);
             return;
     end
