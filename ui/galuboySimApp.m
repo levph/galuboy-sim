@@ -4,10 +4,14 @@ function galuboySimApp()
 %   galuboySimApp()  opens a uifigure with:
 %     - left pane: native MATLAB form controls for the most-edited
 %                  config fields (counts, freq, DL/UL powers, percentile,
-%                  fade margin, 5-way antenna selection, region multi-select)
+%                  fade margin, 5-way antenna selection, region multi-select).
+%                  Per-region RX-disk diameters live on cfg.regions, not in
+%                  the UI (urban_suburban=5km, others=10km).
 %     - center: uihtml progress panel (live region/rotation bars + log)
 %     - right: tab group with Trajectory, Range histogram, Availability
-%              map, Availability CCDF, and an Antennas inspector tab
+%              map, Availability CCDF, and an Antennas inspector tab.
+%              Range histogram and CCDF tabs each carry their own
+%              DL/UL/Bidi dropdown.
 %     - bottom: Run + Save config + Load config + Export HTML buttons
 
     repo_root = fileparts(fileparts(mfilename('fullpath')));
@@ -36,7 +40,7 @@ function galuboySimApp()
     formPanel = uipanel(g, 'Title', 'Configuration', 'Scrollable', 'on');
     formPanel.Layout.Row    = [1 2];
     formPanel.Layout.Column = 1;
-    nRows = 25;
+    nRows = 23;
     fg = uigridlayout(formPanel, [nRows, 2]);
     fg.RowHeight    = repmat({26}, 1, nRows);
     fg.RowHeight{1} = 120;                              % taller row for region listbox
@@ -95,8 +99,6 @@ function galuboySimApp()
         uieditfield(p, 'numeric', 'Limits', [10, 1e6], 'Value', cfg0.flight.lemniscate_length_m));
     handles.maxTilt  = addRow(fg, 23, 'Max tilt (deg)', @(p) ...
         uispinner(p, 'Limits', [0, 89], 'Value', cfg0.flight.max_tilt_deg, 'Step', 1));
-    handles.placeKm  = addRow(fg, 24, 'RX placement diameter (km)', @(p) ...
-        uieditfield(p, 'numeric', 'Limits', [0.01, 500], 'Value', cfg0.rx.placement_diameter_km));
 
     progPanel = uipanel(g, 'Title', 'Progress');
     progPanel.Layout.Row    = [1 2];
@@ -124,20 +126,33 @@ function galuboySimApp()
     tabAnt  = uitab(tabs, 'Title', 'Antennas');
     handles.axTraj = uiaxes(tabTraj);
     handles.axTraj.Position = [10 10 880 580];
-    handles.axHist = uiaxes(tabHist);
-    handles.axHist.Position = [10 10 880 580];
+
+    histGrid = uigridlayout(tabHist, [2, 1]);
+    histGrid.RowHeight = {30, '1x'};
+    histGrid.Padding   = [4 4 4 4];
+    histTopRow = uigridlayout(histGrid, [1, 3]);
+    histTopRow.ColumnWidth = {50, 100, '1x'};
+    histTopRow.Padding     = [0 0 0 0];
+    uilabel(histTopRow, 'Text', 'Link:');
+    handles.linkHistDD = uidropdown(histTopRow, ...
+        'Items', {'DL','UL','Bidi'}, 'Value', 'DL');
+    handles.axHist = uiaxes(histGrid);
+
     handles.axMap  = uiaxes(tabMap);
     handles.axMap.Position  = [10 10 880 580];
 
     ccdfGrid = uigridlayout(tabCcdf, [2, 1]);
     ccdfGrid.RowHeight = {30, '1x'};
     ccdfGrid.Padding   = [4 4 4 4];
-    togRow = uigridlayout(ccdfGrid, [1, 4]);
-    togRow.ColumnWidth = {110, 110, 90, '1x'};
+    togRow = uigridlayout(ccdfGrid, [1, 6]);
+    togRow.ColumnWidth = {110, 110, 90, 50, 100, '1x'};
     togRow.Padding     = [0 0 0 0];
     handles.cbInf = uicheckbox(togRow, 'Text', 'Infantry',  'Value', true);
     handles.cbVeh = uicheckbox(togRow, 'Text', 'Vehicular', 'Value', true);
     handles.cbTot = uicheckbox(togRow, 'Text', 'Total',     'Value', true);
+    uilabel(togRow, 'Text', 'Link:');
+    handles.linkCcdfDD = uidropdown(togRow, ...
+        'Items', {'DL','UL','Bidi'}, 'Value', 'DL');
     handles.axCcdf = uiaxes(ccdfGrid);
 
     % --- Antennas tab (inspect/edit per-antenna patterns) ----------------
@@ -177,9 +192,11 @@ function galuboySimApp()
         'HorizontalAlignment', 'right', 'FontColor', [0.4 0.4 0.4]);
     handles.statusLbl.Layout.Column = 5;
 
-    handles.cbInf.ValueChangedFcn = @(~,~) renderCcdf(fig);
-    handles.cbVeh.ValueChangedFcn = @(~,~) renderCcdf(fig);
-    handles.cbTot.ValueChangedFcn = @(~,~) renderCcdf(fig);
+    handles.cbInf.ValueChangedFcn      = @(~,~) renderCcdf(fig);
+    handles.cbVeh.ValueChangedFcn      = @(~,~) renderCcdf(fig);
+    handles.cbTot.ValueChangedFcn      = @(~,~) renderCcdf(fig);
+    handles.linkCcdfDD.ValueChangedFcn = @(~,~) renderCcdf(fig);
+    handles.linkHistDD.ValueChangedFcn = @(~,~) renderHistogram(fig);
 
     setappdata(fig, 'handles', handles);
 end
@@ -279,7 +296,8 @@ function s = readForm(h)
         'num_rotations',           h.numRot.Value, ...
         'lemniscate_length_m',     h.lemLenM.Value, ...
         'max_tilt_deg',            h.maxTilt.Value, ...
-        'placement_diameter_km',   h.placeKm.Value);
+        'link_hist',               lower(char(h.linkHistDD.Value)), ...
+        'link_ccdf',               lower(char(h.linkCcdfDD.Value)));
 end
 
 
@@ -333,14 +351,23 @@ function onLoadCfg(h)
     if ismember('num_flight_steps',        fp), h.flightSteps.Value  = s.num_flight_steps;               end
     if ismember('num_rotations',           fp), h.numRot.Value       = s.num_rotations;                  end
     if ismember('lemniscate_length_m',     fp), h.lemLenM.Value      = s.lemniscate_length_m;            end
-    % Accept both the new placement_diameter_km and the legacy
-    % placement_radius_km (older saved JSON form states); the latter is
-    % doubled because the previous semantic was radius.
-    if ismember('placement_diameter_km',   fp), h.placeKm.Value      = s.placement_diameter_km;          end
-    if ismember('placement_radius_km',     fp), h.placeKm.Value      = 2 * s.placement_radius_km;        end
+    % Legacy placement_diameter_km / placement_radius_km in saved JSON are
+    % ignored - per-region diameters live on cfg.regions now.
     if ismember('max_tilt_deg',            fp), h.maxTilt.Value      = s.max_tilt_deg;                   end
+    if ismember('link_hist',               fp), h.linkHistDD.Value   = upperLink(s.link_hist);           end
+    if ismember('link_ccdf',               fp), h.linkCcdfDD.Value   = upperLink(s.link_ccdf);           end
 
     h.statusLbl.Text = sprintf('Loaded %s', file);
+end
+
+
+function v = upperLink(s)
+    switch lower(char(s))
+        case 'dl',   v = 'DL';
+        case 'ul',   v = 'UL';
+        case 'bidi', v = 'Bidi';
+        otherwise,   v = 'DL';
+    end
 end
 
 
@@ -352,7 +379,18 @@ function renderCcdf(fig)
     plotAvailabilityCCDF(results, cfg, h.axCcdf, ...
         'show_inf',   logical(h.cbInf.Value), ...
         'show_veh',   logical(h.cbVeh.Value), ...
-        'show_total', logical(h.cbTot.Value));
+        'show_total', logical(h.cbTot.Value), ...
+        'link',       lower(char(h.linkCcdfDD.Value)));
+end
+
+
+function renderHistogram(fig)
+    h = getappdata(fig, 'handles');
+    results = getappdata(fig, 'last_results');
+    cfg     = getappdata(fig, 'last_cfg');
+    if isempty(results) || isempty(cfg), return; end
+    plotRangeHistogram(results, cfg, h.axHist, ...
+        'link', lower(char(h.linkHistDD.Value)));
 end
 
 

@@ -74,24 +74,31 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
     tx_steps = repmat(tx_template, 1, Nf);
 
     % --- TX altitude: hold constant MSL across the trajectory ------------
+    % elevation() with no 'Map' arg silently falls back to MATLAB's GMTED2010
+    % service over HTTPS, which is unusable on air-gapped on-prem boxes. So
+    % when use_terrain=false (no registered terrain) we assume FLAT EARTH:
+    % terrain elevation = 0 everywhere, and altitude_m is treated as MSL.
+    % This is the right semantic for free-space runs and never touches the
+    % network. For Longley-Rice runs you must use_terrain=true; runScenario
+    % refuses the LR + no-terrain combination up front.
     probe = txsite('Latitude', flight_lats, 'Longitude', flight_lons, ...
                    'AntennaHeight', 0);
     if use_terrain
         terrain_at_tx = elevation(probe, 'Map', map_name_local);
     else
-        terrain_at_tx = elevation(probe);   % default GMTED2010
+        terrain_at_tx = zeros(1, numel(flight_lats));   % flat earth, offline
     end
     terrain_at_tx = double(terrain_at_tx(:).');     % [1 x Nf]
 
     if isfield(cfg.tx, 'altitude_msl_m') && ~isempty(cfg.tx.altitude_msl_m)
         target_msl = double(cfg.tx.altitude_msl_m);
     else
-        centroid_site = txsite('Latitude', mean(flight_lats), ...
-                               'Longitude', mean(flight_lons), 'AntennaHeight', 0);
         if use_terrain
+            centroid_site = txsite('Latitude', mean(flight_lats), ...
+                                   'Longitude', mean(flight_lons), 'AntennaHeight', 0);
             centroid_el = elevation(centroid_site, 'Map', map_name_local);
         else
-            centroid_el = elevation(centroid_site);
+            centroid_el = 0;   % flat earth, offline
         end
         target_msl = double(centroid_el) + double(cfg.tx.altitude_m);
     end
@@ -122,9 +129,23 @@ function rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
         if use_terrain
             pl_row = pathloss(pm, rx_array, tx_steps(i), 'Map', map_name_local);
         else
+            % No-terrain branch: only safe for propagation models that don't
+            % consult a terrain raster (e.g. free-space). Longley-Rice without
+            % a Map would silently pull GMTED2010 over HTTPS - runScenario
+            % refuses that combination at startup, so this line is only
+            % reached for terrain-free models.
             pl_row = pathloss(pm, rx_array, tx_steps(i));
         end
-        [az_deg, el_deg] = angle(rx_array, tx_steps(i));
+        % angle() internally queries terrain to compute absolute MSL positions
+        % from the per-site AGL AntennaHeight values. Without 'Map' it defaults
+        % to gmted2010 (network fetch), which fails on air-gapped boxes with
+        % "Unable to access terrain data 'gmted2010'". The 'Map' arg IS honored
+        % by angle() in R2021b+ - same pattern as pathloss() above.
+        if use_terrain
+            [az_deg, el_deg] = angle(rx_array, tx_steps(i), 'Map', map_name_local);
+        else
+            [az_deg, el_deg] = angle(rx_array, tx_steps(i));
+        end
         PL(i,:) = single(pl_row(:).');
         % MATLAB angle() returns CCW-from-east; convert to compass
         % (CW-from-north) to match heading + boresight conventions.

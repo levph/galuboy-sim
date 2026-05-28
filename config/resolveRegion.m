@@ -9,10 +9,12 @@ function region = resolveRegion(region_cfg, repo_root)
 %               osm_path values
 %
 %   Returned region:
-%     name             char
-%     osm_path         absolute path
-%     latlim, lonlim   [lo, hi] in degrees
+%     name                   char
+%     osm_path               absolute path
+%     latlim, lonlim         [lo, hi] in degrees
 %     center_lat, center_lon
+%     placement_diameter_km  scalar km (passed through; [] if absent)
+%     category               char  (passed through; '' if absent)
 %
 %   Errors with a friendly message naming the expected drop path when
 %   the OSM file is missing.
@@ -41,13 +43,26 @@ function region = resolveRegion(region_cfg, repo_root)
         [lonlim, latlim, ~] = osmReadBounds(osm_path);
     end
 
+    if isfield(region_cfg, 'placement_diameter_km')
+        placement_diameter_km = region_cfg.placement_diameter_km;
+    else
+        placement_diameter_km = [];
+    end
+    if isfield(region_cfg, 'category')
+        category = char(region_cfg.category);
+    else
+        category = '';
+    end
+
     region = struct( ...
-        'name',       char(region_cfg.name), ...
-        'osm_path',   char(region_cfg.osm_path), ...
-        'latlim',     latlim, ...
-        'lonlim',     lonlim, ...
-        'center_lat', mean(latlim), ...
-        'center_lon', mean(lonlim));
+        'name',                  char(region_cfg.name), ...
+        'osm_path',              char(region_cfg.osm_path), ...
+        'latlim',                latlim, ...
+        'lonlim',                lonlim, ...
+        'center_lat',            mean(latlim), ...
+        'center_lon',            mean(lonlim), ...
+        'placement_diameter_km', placement_diameter_km, ...
+        'category',              category);
 end
 
 

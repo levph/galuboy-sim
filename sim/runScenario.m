@@ -41,6 +41,20 @@ function results = runScenario(cfg, progress_cb)
 
     repo_root = fileparts(fileparts(mfilename('fullpath')));   % <repo>/sim -> <repo>
 
+    % --- Offline-safety guard --------------------------------------------
+    % Longley-Rice without a registered terrain map silently falls back to
+    % MATLAB's GMTED2010 tile service over HTTPS (maps.mathworks.com). That
+    % won't work on air-gapped / on-prem deployments. Refuse the combo at
+    % startup so the failure mode is a clear error, not a network timeout.
+    if strcmpi(cfg.propagation.model, 'longley-rice') && ~cfg.propagation.use_terrain
+        error('runScenario:lrWithoutTerrain', ...
+            ['Longley-Rice requires a terrain source. ' ...
+             'cfg.propagation.use_terrain is false, which would make ' ...
+             'pathloss() default to GMTED2010 fetched over HTTPS. ' ...
+             'Either set use_terrain=true and ship DT2 tiles, or pick a ' ...
+             'terrain-free propagation model (e.g. ''freespace'').']);
+    end
+
     % --- Resolve regions --------------------------------------------------
     region_cfgs = cfg.regions;
     n_regions   = numel(region_cfgs);
@@ -49,7 +63,9 @@ function results = runScenario(cfg, progress_cb)
     end
     regions(1, n_regions) = struct( ...
         'name', '', 'osm_path', '', 'latlim', [], 'lonlim', [], ...
-        'center_lat', 0, 'center_lon', 0, 'buildings', {{}});
+        'center_lat', 0, 'center_lon', 0, ...
+        'placement_diameter_km', [], 'category', '', ...
+        'buildings', {{}});
     for r = 1:n_regions
         rg = resolveRegion(region_cfgs(r), repo_root);
         % OSM-less regions: osmReadBuildings returns {} for missing/empty paths
@@ -136,6 +152,13 @@ function results = runScenario(cfg, progress_cb)
                 sprintf("region %d/%d (%s)", r, n_regions, region.name));
         end
 
+        % Per-region disk diameter override (urban_suburban=5 km, others=10 km).
+        % Falls back to cfg.rx.placement_diameter_km when the region didn't set one.
+        region_rx_cfg = cfg.rx;
+        if ~isempty(region.placement_diameter_km)
+            region_rx_cfg.placement_diameter_km = region.placement_diameter_km;
+        end
+
         avail_dl_mat   = false(M, n_rx);
         avail_ul_mat   = false(M, n_rx);
         avail_bidi_mat = false(M, n_rx);
@@ -153,7 +176,7 @@ function results = runScenario(cfg, progress_cb)
             rotation_deg = (m - 1) * cfg.flight.step_degrees;
             [flight_lons, flight_lats, flight_tilts, flight_headings] = ...
                 generateTrajectory(region, cfg.flight, rotation_deg);
-            [rx_array,    rx_table]    = placeReceivers(region, cfg.rx, region.buildings);
+            [rx_array,    rx_table]    = placeReceivers(region, region_rx_cfg, region.buildings);
 
             rot = runRotation(tx_template, rx_array, rx_table, pm, map_name, ...
                               flight_lons, flight_lats, ant, cfg, ...

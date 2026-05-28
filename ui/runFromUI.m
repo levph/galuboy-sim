@@ -23,6 +23,9 @@ function [results, cfg] = runFromUI(form_state, html_panel, axes_hist, axes_map,
 
     cfg = buildCfgFromUI(form_state);
 
+    link_hist = pickLink(form_state, 'link_hist');
+    link_ccdf = pickLink(form_state, 'link_ccdf');
+
     % --- Pre-run trajectory preview ---------------------------------------
     % Resolve the selected region, draw rot-1's figure-8 plus a fresh RX
     % placement. The placement here is illustrative - runScenario calls
@@ -31,13 +34,14 @@ function [results, cfg] = runFromUI(form_state, html_panel, axes_hist, axes_map,
     if ~isempty(axes_traj)
         repo_root = fileparts(fileparts(mfilename('fullpath')));
         region    = resolveRegion(cfg.regions(1), repo_root);
-        [lons, lats] = generateTrajectory(region, cfg.flight, 0);
-        [~, rx_table] = placeReceivers(region, cfg.rx);
-        diameter_km = [];
-        if isfield(cfg.rx, 'placement_diameter_km')
-            diameter_km = cfg.rx.placement_diameter_km;
+        preview_rx_cfg = cfg.rx;
+        if isfield(region, 'placement_diameter_km') && ~isempty(region.placement_diameter_km)
+            preview_rx_cfg.placement_diameter_km = region.placement_diameter_km;
         end
-        plotTrajectoryMap(region, lons, lats, rx_table, axes_traj, diameter_km);
+        [lons, lats] = generateTrajectory(region, cfg.flight, 0);
+        [~, rx_table] = placeReceivers(region, preview_rx_cfg);
+        plotTrajectoryMap(region, lons, lats, rx_table, axes_traj, ...
+            preview_rx_cfg.placement_diameter_km);
         drawnow;
     end
 
@@ -48,13 +52,25 @@ function [results, cfg] = runFromUI(form_state, html_panel, axes_hist, axes_map,
     results = runScenario(cfg, cb);
 
     % Render final plots into the supplied axes
-    plotRangeHistogram(results, cfg, axes_hist);
+    plotRangeHistogram(results, cfg, axes_hist, 'link', link_hist);
     plotAvailabilityMap(results, cfg, axes_map);
     if ~isempty(axes_ccdf)
         plotAvailabilityCCDF(results, cfg, axes_ccdf, ...
             'show_inf',   logical(ccdf_opts.show_inf), ...
             'show_veh',   logical(ccdf_opts.show_veh), ...
-            'show_total', logical(ccdf_opts.show_tot));
+            'show_total', logical(ccdf_opts.show_tot), ...
+            'link',       link_ccdf);
+    end
+end
+
+
+function link = pickLink(s, field)
+    link = "dl";
+    if isfield(s, field) && ~isempty(s.(field))
+        v = lower(string(s.(field)));
+        if ismember(v, ["dl","ul","bidi"])
+            link = v;
+        end
     end
 end
 
@@ -91,8 +107,7 @@ function cfg = buildCfgFromUI(s)
     if isfield(s, 'lemniscate_length_m'),  cfg.flight.lemniscate_length_m  = s.lemniscate_length_m;  end
     if isfield(s, 'lemniscate_scale_deg'), cfg.flight.lemniscate_scale_deg = s.lemniscate_scale_deg; end
     if isfield(s, 'max_tilt_deg'),         cfg.flight.max_tilt_deg         = s.max_tilt_deg;         end
-    if isfield(s, 'placement_diameter_km'), cfg.rx.placement_diameter_km   = s.placement_diameter_km;   end
-    if isfield(s, 'placement_radius_km'),   cfg.rx.placement_diameter_km   = 2 * s.placement_radius_km; end  % legacy
+    % Per-region RX-disk diameters live on cfg.regions; no global UI override.
 
     % Filter regions to the selected subset. Accept the new region_names
     % cellstr (from the multi-select listbox) or the legacy single

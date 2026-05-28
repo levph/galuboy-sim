@@ -1,24 +1,27 @@
 function plotAvailabilityCCDF(results, cfg, target_axes, opts)
-%PLOTAVAILABILITYCCDF  Availability vs distance-from-centroid CCDF.
+%PLOTAVAILABILITYCCDF  Availability vs distance-from-centroid CCDF, two aggregates.
 %
 %   plotAvailabilityCCDF(results, cfg, target_axes)
 %   plotAvailabilityCCDF(results, cfg, target_axes, opts)
 %
 %   For each (rotation x RX) sample we have a distance-from-centroid and
-%   an availability flag. This plot shows, for each distance d on the
-%   x-axis, the *availability rate among receivers at range >= d*. Reads
-%   like a CCDF of coverage vs range: y(d) = P(available | dist >= d).
+%   an availability flag for the selected link direction. The plot shows
+%   y(d) = P(available | dist >= d) - reads like a CCDF of coverage.
 %
-%   Distances are aggregated into fixed-width bins (cfg.ccdf.bin_km,
-%   default 0.2 km) so the curve has stable visual resolution. Tail bins
-%   with fewer than cfg.ccdf.min_samples receivers in the d_bin..d_max
-%   range are masked to NaN.
+%   Regions are pooled into two groups by region.category:
+%     - urban_suburban  (orange)
+%     - other            (blue)
+%   For each group, up to three curves are drawn (toggled by opts):
+%     - total      solid line, no marker
+%     - infantry   line with circle markers
+%     - vehicular  line with square markers
 %
-%   opts (optional struct):
-%     .show_inf   (default true)  infantry-only curve
-%     .show_veh   (default true)  vehicular-only curve
-%     .show_total (default true)  combined curve
-%     .no_title   (default false) suppress the figure title (for export)
+%   opts (optional struct or name-value):
+%     .show_inf   (default true)
+%     .show_veh   (default true)
+%     .show_total (default true)
+%     .link       'dl' (default) | 'ul' | 'bidi'
+%     .no_title   (default false)
 
     arguments
         results
@@ -28,6 +31,13 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
         opts.show_veh   (1,1) logical = true
         opts.show_total (1,1) logical = true
         opts.no_title   (1,1) logical = false
+        opts.link       string  = "dl"
+    end
+
+    link = lower(string(opts.link));
+    if ~ismember(link, ["dl", "ul", "bidi"])
+        error('plotAvailabilityCCDF:badLink', ...
+              'link must be one of dl/ul/bidi, got "%s".', opts.link);
     end
 
     if isfield(cfg, 'ccdf') && isfield(cfg.ccdf, 'min_samples')
@@ -45,7 +55,7 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
     cla(ax);
     hold(ax, 'on');
 
-    [d_km, av, is_inf] = flattenAll(results);
+    [d_km, av, is_inf, is_urban] = flattenAll(results, link);
     if isempty(d_km)
         title(ax, 'No data');
         hold(ax, 'off');
@@ -54,17 +64,39 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
 
     d_max = max(d_km);
 
-    if opts.show_total
-        drawCCDF(ax, d_km,          av,          'total', ...
-                 [0.10 0.10 0.10], 2.5, 'none', min_samples, bin_km, d_max);
-    end
-    if opts.show_inf && any(is_inf)
-        drawCCDF(ax, d_km(is_inf),  av(is_inf),  'infantry', ...
-                 [0.84 0.39 0.18], 1.8, 'o',    min_samples, bin_km, d_max);
-    end
-    if opts.show_veh && any(~is_inf)
-        drawCCDF(ax, d_km(~is_inf), av(~is_inf), 'vehicular', ...
-                 [0.12 0.47 0.71], 1.8, 's',    min_samples, bin_km, d_max);
+    % Color = group; marker = type
+    colors = struct('urban_suburban', [0.84 0.39 0.18], ...
+                    'other',          [0.12 0.47 0.71]);
+    groups = {'urban_suburban', 'other'};
+    group_mask = struct('urban_suburban', is_urban, 'other', ~is_urban);
+
+    for gk = 1:numel(groups)
+        gname = groups{gk};
+        gmask = group_mask.(gname);
+        if ~any(gmask), continue; end
+        gcolor = colors.(gname);
+
+        if opts.show_total
+            drawCCDF(ax, d_km(gmask), av(gmask), ...
+                     sprintf('%s total', gname), ...
+                     gcolor, 2.5, 'none', min_samples, bin_km, d_max);
+        end
+        if opts.show_inf
+            m = gmask & is_inf;
+            if any(m)
+                drawCCDF(ax, d_km(m), av(m), ...
+                         sprintf('%s infantry', gname), ...
+                         gcolor, 1.6, 'o', min_samples, bin_km, d_max);
+            end
+        end
+        if opts.show_veh
+            m = gmask & ~is_inf;
+            if any(m)
+                drawCCDF(ax, d_km(m), av(m), ...
+                         sprintf('%s vehicular', gname), ...
+                         gcolor, 1.6, 's', min_samples, bin_km, d_max);
+            end
+        end
     end
 
     hold(ax, 'off');
@@ -78,12 +110,13 @@ function plotAvailabilityCCDF(results, cfg, target_axes, opts)
     ylim(ax, [0, 1.05]);
     xlim(ax, [0, d_max]);
     if ~opts.no_title
-        title(ax, 'Availability CCDF vs distance from centroid', ...
-              'FontSize', 13, 'FontWeight', 'normal');
+        title(ax, sprintf('Availability CCDF [%s] - urban_suburban vs other', ...
+              linkDisplayName(link)), ...
+              'FontSize', 13, 'FontWeight', 'normal', 'Interpreter', 'none');
     end
-    lg = legend(ax, 'Location', 'best');
+    lg = legend(ax, 'Location', 'best', 'Interpreter', 'none');
     lg.Box      = 'off';
-    lg.FontSize = 11;
+    lg.FontSize = 10;
 end
 
 
@@ -104,16 +137,14 @@ function drawCCDF(ax, d_km, av, label, color, lw, marker, min_samples, bin_km, d
     avail_per_bin = accumarray(bin_idx(bin_idx > 0), avs(bin_idx > 0), [nbins, 1], @sum, 0);
     counts        = counts(:);
 
-    % Reverse-cumulative aggregation: n(d_i) = total samples with d >= d_i,
-    % k(d_i) = number of those that are available.
+    % Reverse-cumulative: n(d_i) = total samples with d >= d_i, k = available among those
     n = flipud(cumsum(flipud(counts)));
     k = flipud(cumsum(flipud(avail_per_bin)));
 
     rate = k ./ max(n, 1);
 
-    % Mask sparse tail bins (too few samples for a meaningful rate)
-    sparse_mask = n < min_samples;
-    rate(sparse_mask) = NaN;
+    % Mask sparse tail bins
+    rate(n < min_samples) = NaN;
 
     x = centres(:);
 
@@ -124,23 +155,22 @@ end
 
 
 % -------------------------------------------------------------------------
-function [d_km, av, is_inf] = flattenAll(results)
-    d_km   = [];
-    av     = false(0, 1);
-    is_inf = false(0, 1);
+function [d_km, av, is_inf, is_urban] = flattenAll(results, link)
+    d_km     = [];
+    av       = false(0, 1);
+    is_inf   = false(0, 1);
+    is_urban = false(0, 1);
     for r = 1:numel(results)
         res = results(r);
-        if isempty(res.available), continue; end
-        M = size(res.available, 1);
+        av_field = pickAvailField(res, link);
+        if isempty(av_field), continue; end
+        M = size(av_field, 1);
 
-        d_r  = double(reshape(res.dists_m,  [], 1)) / 1000;
-        av_r = reshape(res.available, [], 1);
+        d_r  = double(reshape(res.dists_m, [], 1)) / 1000;
+        av_r = reshape(av_field, [], 1);
 
         % placeReceivers always emits rx_types in the order
-        % [infantry x n_inf; vehicular x n_veh], so the per-rx type column
-        % is constant across rotations. reshape() above is COLUMN-MAJOR,
-        % so to align is_inf with the flattened vector, we replicate the
-        % per-rx mask across M rows then column-major flatten.
+        % [infantry x n_inf; vehicular x n_veh] - constant across rotations.
         col1 = res.rx_types{1};
         if iscategorical(col1)
             is_inf_per_rx = (col1 == 'infantry');
@@ -152,10 +182,52 @@ function [d_km, av, is_inf] = flattenAll(results)
             warning('plotAvailabilityCCDF:rxTypeDrift', ...
                 'rx_types differ between rotations - mask assumes constant order.');
         end
-        is_inf_r = reshape(repmat(is_inf_per_rx, M, 1), [], 1);   % column-major flatten
+        is_inf_r = reshape(repmat(is_inf_per_rx, M, 1), [], 1);
 
-        d_km   = [d_km;   d_r];       %#ok<AGROW>
-        av     = [av;     av_r];      %#ok<AGROW>
-        is_inf = [is_inf; is_inf_r];  %#ok<AGROW>
+        is_urb_region = regionIsUrban(res.region);
+        is_urban_r    = true(numel(d_r), 1) & is_urb_region;
+
+        d_km     = [d_km;     d_r];        %#ok<AGROW>
+        av       = [av;       av_r];       %#ok<AGROW>
+        is_inf   = [is_inf;   is_inf_r];   %#ok<AGROW>
+        is_urban = [is_urban; is_urban_r]; %#ok<AGROW>
+    end
+end
+
+
+function v = pickAvailField(res, link)
+    switch link
+        case "dl"
+            if isfield(res, 'available_dl'),   v = res.available_dl;
+            else,                              v = res.available;
+            end
+        case "ul"
+            if isfield(res, 'available_ul'),   v = res.available_ul;
+            else,                              v = [];
+            end
+        case "bidi"
+            if isfield(res, 'available_bidi'), v = res.available_bidi;
+            else,                              v = [];
+            end
+    end
+end
+
+
+function tf = regionIsUrban(region)
+    if isstruct(region) && isfield(region, 'category') && ~isempty(region.category)
+        tf = strcmp(region.category, 'urban_suburban');
+    elseif isstruct(region) && isfield(region, 'name')
+        tf = startsWith(string(region.name), "urban_suburban");
+    else
+        tf = false;
+    end
+end
+
+
+function s = linkDisplayName(link)
+    switch link
+        case "dl",   s = 'DL';
+        case "ul",   s = 'UL';
+        case "bidi", s = 'Bidi';
     end
 end
