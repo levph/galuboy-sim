@@ -52,6 +52,14 @@ function setupTerrain(terrain_name, tile_files)
 
     % Otherwise, clear any stale registration (settings group + any files
     % that happen to still live at the stale writeLocation).
+    %
+    % removeCustomTerrain deletes the cache's numeric zoom-level subfolders.
+    % If those folders are on the MATLAB path (e.g. addpath(genpath(repo))
+    % swept terrain_cache/ onto the path), MATLAB emits one
+    % MATLAB:RMDIR:RemovedFromPath warning per folder - a wall of noise.
+    % Silence them here, same as the rmdir below.
+    rm_warn  = warning('off', 'MATLAB:RMDIR:RemovedFromPath');
+    rm_clean = onCleanup(@() warning(rm_warn));
     try
         removeCustomTerrain(terrain_name);
         fprintf('[Terrain] Removed stale "%s" registration\n', terrain_name);

@@ -9,6 +9,12 @@
 *.mat
 results/
 
+# On-prem deliverable bundle (regenerated from partA/partB/config/tests source)
+dist/
+
+# Excel lock/temp files
+~$*
+
 # Runtime terrain tile cache (rebuilt from source tiles)
 terrain_cache/
 

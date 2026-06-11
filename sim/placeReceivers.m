@@ -8,9 +8,16 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
 %   rx_cfg     config.rx struct with fields:
 %                infantry.count, infantry.height_m, infantry.antenna_name_dl,
 %                vehicular.count, vehicular.height_m, vehicular.antenna_name_dl
-%   buildings  optional cell array of [N x 2] polygons (lon, lat) used to
-%              reject samples that fall inside a building footprint. {} or
-%              omitted disables the check.
+%   buildings  optional building-rejection tester. Three accepted forms; {}
+%              or omitted disables the check:
+%                - cell array of [N x 2] polygons (lon, lat) - legacy OSM form,
+%                  tested per-polygon via inpolygon (small N only);
+%                - function handle  @(lon,lat) -> logical  - the fast Part A
+%                  tester from buildingRejectMask (one call per candidate,
+%                  scalar in / scalar out);
+%                - a polyshape - tested via isinterior.
+%              A sample landing inside any footprint is rejected (re-drawn up
+%              to max_attempts times).
 %
 %   Returns:
 %     rx_array  rxsite array, length n_inf + n_veh, with VECTOR
@@ -25,6 +32,11 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
     if nargin < 3 || isempty(buildings)
         buildings = {};
     end
+
+    % Normalise the rejection tester to a single scalar predicate
+    % @(lon,lat) -> logical, regardless of which form the caller passed.
+    % reject_fn is [] when no check is requested.
+    reject_fn = makeRejectFn(buildings);
 
     n_inf = rx_cfg.infantry.count;
     n_veh = rx_cfg.vehicular.count;
@@ -54,7 +66,6 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
         sampler_ctx.lat_hi = region.latlim(2);
     end
 
-    n_buildings  = numel(buildings);
     max_attempts = 50;
     lons = zeros(n_rx, 1);
     lats = zeros(n_rx, 1);
@@ -63,7 +74,7 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
         lon_k = 0; lat_k = 0;   % keep defined for the fallback path
         for attempt = 1:max_attempts
             [lon_k, lat_k] = sampleOne(use_disk, sampler_ctx);
-            if n_buildings == 0 || ~insideAnyBuilding(lon_k, lat_k, buildings)
+            if isempty(reject_fn) || ~reject_fn(lon_k, lat_k)
                 lons(k) = lon_k; lats(k) = lat_k;
                 accepted = true;
                 break;
@@ -83,8 +94,13 @@ function [rx_array, rx_table] = placeReceivers(region, rx_cfg, buildings)
 
     height_m        = [repmat(rx_cfg.infantry.height_m, n_inf, 1);
                        repmat(rx_cfg.vehicular.height_m, n_veh, 1)];
-    antenna_name_dl = [repmat(string(rx_cfg.infantry.antenna_name_dl),  n_inf, 1);
-                       repmat(string(rx_cfg.vehicular.antenna_name_dl), n_veh, 1)];
+    % antenna_name_dl is a Part B concern; Part A's rx config omits it. Default
+    % to "" so the table schema is stable for both callers.
+    inf_ant = ""; veh_ant = "";
+    if isfield(rx_cfg.infantry,  'antenna_name_dl'), inf_ant = string(rx_cfg.infantry.antenna_name_dl);  end
+    if isfield(rx_cfg.vehicular, 'antenna_name_dl'), veh_ant = string(rx_cfg.vehicular.antenna_name_dl); end
+    antenna_name_dl = [repmat(inf_ant, n_inf, 1);
+                       repmat(veh_ant, n_veh, 1)];
 
     rx_table = table(lons, lats, type, height_m, antenna_name_dl, ...
                      'VariableNames', {'lon','lat','type','height_m','antenna_name_dl'});
@@ -109,6 +125,20 @@ function [lon_k, lat_k] = sampleOne(use_disk, ctx)
     else
         lon_k = ctx.lon_lo + (ctx.lon_hi - ctx.lon_lo) * rand();
         lat_k = ctx.lat_lo + (ctx.lat_hi - ctx.lat_lo) * rand();
+    end
+end
+
+
+function reject_fn = makeRejectFn(buildings)
+%MAKEREJECTFN  Normalise the buildings argument to @(lon,lat)->logical or [].
+    if isa(buildings, 'function_handle')
+        reject_fn = buildings;                       % fast Part A tester
+    elseif isa(buildings, 'polyshape')
+        reject_fn = @(lon, lat) isinterior(buildings, lon, lat);
+    elseif iscell(buildings) && ~isempty(buildings)
+        reject_fn = @(lon, lat) insideAnyBuilding(lon, lat, buildings);
+    else
+        reject_fn = [];                              % {} / empty -> no check
     end
 end
 

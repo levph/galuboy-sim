@@ -60,14 +60,8 @@ function G_dbi = applyAntennaGain(pat, az_rad, el_rad, boresight_az_rad, boresig
             %
             % Using theta in both axes of the min(G_az,G_el) pattern reduces it
             % to min(f(theta),f(theta)) = f(theta), the correct 1D profile.
-            dot_qb = cos(el_rad) .* cos(boresight_el_rad) ...
-                  .* cos(az_rad  -  boresight_az_rad) ...
-                  +  sin(el_rad) .* sin(boresight_el_rad);
-
-            % Clamp numerically before acos (floating-point can exceed +-1)
-            one = ones(1, 1, 'like', dot_qb);
-            dot_qb = max(-one, min(one, dot_qb));
-            theta  = acos(dot_qb);          % off-boresight angle in [0, pi]
+            % Shared with Part A's steering-angle computation.
+            theta = offBoresightAngle(az_rad, el_rad, boresight_az_rad, boresight_el_rad);
 
             % griddedInterpolant accepts double; cast and cast back to preserve
             % the input numeric type (single in the hot path). Linearize the
