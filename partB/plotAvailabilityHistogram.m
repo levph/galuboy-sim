@@ -18,11 +18,12 @@ function plotAvailabilityHistogram(ax, series, opts)
     for s = series
         [~, av, cnt] = distanceBinStats(s.dist_m, double(s.available), edges, @mean);
         av(cnt < min_n) = NaN;
-        plot(ax, centers, 100*av, '-o', 'LineWidth', 1.3, 'DisplayName', s.label);
+        plot(ax, centers, 100*av, '-o', 'LineWidth', 3, 'DisplayName', s.label);
     end
-    xlabel(ax, 'distance from centre (m)');
-    ylabel(ax, 'availability (%)');
+    xlabel(ax, 'distance from centre (m)', 'FontSize', 25, 'FontWeight', 'bold');
+    ylabel(ax, 'availability (%)', 'FontSize', 25, 'FontWeight', 'bold');
     ylim(ax, [0 101]); grid(ax, 'on');
-    legend(ax, 'show', 'Location', 'best');
-    title(ax, sprintf('Availability vs distance (%d m bins)', bin_m));
+    legend(ax, 'show', 'Location', 'best', 'Interpreter', 'none');
+    title(ax, sprintf('Availability vs distance (%d m bins)', bin_m), ...
+        'FontSize', 36, 'FontWeight', 'bold', 'Interpreter', 'none');
 end

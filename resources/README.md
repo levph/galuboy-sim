@@ -106,3 +106,32 @@ Three example patterns are committed:
 | `tx_omni.csv`              | 7 dBi isotropic (placeholder)            |
 | `rx_infantry_omni.csv`     | Handheld vertical dipole (peak 6.5 dBi)  |
 | `rx_vehicular_dipole.csv`  | Roof whip with horizon peak / zenith null |
+
+## `mcs/`
+
+`mcs_tables.xlsx` — Part B's MCS -> IBO / required-SNR / rate lookup
+(`config/buildConfigB.m`'s `config.mcs_book`, read by `partB/loadMcsBook.m`).
+Two sheets, one per link direction (same MCS set, values differ DL vs UL; the
+values do NOT depend on ground device type):
+
+| Sheet | Columns |
+|-------|---------|
+| `DL`  | `mcs_index`, `mcs`, `ibo_db`, `req_snr_db`, `rate_1finger_mbps` |
+| `UL`  | (same columns) |
+
+- `mcs_index` — integer 1-11, matches `config.links(*).mcs_index`.
+- `mcs` — display name (e.g. `"16QAM 1/2"`); must be identical between the two
+  sheets for the same index (the UI's MCS dropdown assumes this).
+- `ibo_db` — PAPR backoff (IBO) for that MCS.
+- `req_snr_db` — minimum SNR for that MCS to be decodable.
+- `rate_1finger_mbps` — achieved rate at **1 finger**, on that direction's
+  organic (1-finger) bandwidth. A link's finger count multiplies both the
+  bandwidth and this rate: `BW = fingers * config.finger.bw_per_finger_hz.(dir)`,
+  `rate = fingers * rate_1finger_mbps(mcs, dir)`.
+
+The 11 rows (all directions) are the fixed MCS set:
+`BPSK 1/6, BPSK 1/3, QPSK 1/3, QPSK 1/2, 16QAM 1/3, 16QAM 1/2, 16QAM 2/3,
+64QAM 1/2, 64QAM 2/3, 64QAM 3/4, 64QAM 5/6` (indices 1-11 in that order).
+
+All numeric values in the committed workbook are made-up placeholders —
+replace with real figures; the row/column structure is what matters.

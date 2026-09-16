@@ -2,7 +2,7 @@ classdef test_partB_pipeline < matlab.unittest.TestCase
 %TEST_PARTB_PIPELINE  loadPartA + analyzeLinks on a synthetic Part A workbook.
 
     properties
-        xlsx; antbook; cfg; book;
+        xlsx; antbook; mcsxlsx; cfg; book; mcsbook;
     end
 
     methods (TestClassSetup)
@@ -26,22 +26,32 @@ classdef test_partB_pipeline < matlab.unittest.TestCase
             writetable(Rg, tc.xlsx, 'Sheet', 'regions');
             writetable(D,  tc.xlsx, 'Sheet', 'devices');
 
-            % --- temp antenna workbook: Angle + >=6 antenna columns -------
+            % --- temp antenna workbook: Angle + one column per antenna NAME
+            %     used by buildConfigB's links -------------------------------
             tc.cfg = buildConfigB();
-            nant = max([tc.cfg.links.tx_ant_idx, tc.cfg.links.rx_ant_idx]);
+            names = unique([{tc.cfg.links.tx_ant}, {tc.cfg.links.rx_ant}], 'stable');
             tc.antbook = [tempname '.xlsx'];
             ang = [0; 90; 180];
-            cols = num2cell(repmat(5, numel(ang), nant), 1);   % const 5 dBi each
-            T = table(ang, cols{:}, ...
-                'VariableNames', ['Angle', "ant"+string(1:nant)]);
+            cols = num2cell(repmat(5, numel(ang), numel(names)), 1);   % const 5 dBi each
+            T = table(ang, cols{:}, 'VariableNames', ['Angle', string(names)]);
             writetable(T, tc.antbook);
             tc.book = loadAntennaBook(tc.antbook);
+
+            % --- temp MCS workbook: DL/UL sheets, mcs_index 1..11 ---------
+            tc.mcsxlsx = [tempname '.xlsx'];
+            idx = (1:11)';
+            mk = @() table(idx, "MCS"+string(idx), idx+0.5, idx+1, idx*2, ...
+                'VariableNames', {'mcs_index','mcs','ibo_db','req_snr_db','rate_1finger_mbps'});
+            writetable(mk(), tc.mcsxlsx, 'Sheet', 'DL');
+            writetable(mk(), tc.mcsxlsx, 'Sheet', 'UL');
+            tc.mcsbook = loadMcsBook(tc.mcsxlsx);
         end
     end
     methods (TestClassTeardown)
         function cleanup(tc)
             if exist(tc.xlsx,'file'), delete(tc.xlsx); end
             if exist(tc.antbook,'file'), delete(tc.antbook); end
+            if exist(tc.mcsxlsx,'file'), delete(tc.mcsxlsx); end
         end
     end
 
@@ -55,10 +65,10 @@ classdef test_partB_pipeline < matlab.unittest.TestCase
             tc.verifyEqual(S.device.category(3), "other");
         end
 
-        function analyzeAllFourLinks(tc)
+        function analyzeAllLinks(tc)
             S = loadPartA(tc.xlsx);
-            R = analyzeLinks(S, tc.cfg, tc.book);
-            tc.verifyEqual(numel(R), 4);
+            R = analyzeLinks(S, tc.cfg, tc.book, tc.mcsbook);
+            tc.verifyEqual(numel(R), 6);
             % DL_infantry / UL_infantry select the 2 infantry devices
             inf_links = R(strcmp({R.ground},'infantry'));
             for L = inf_links

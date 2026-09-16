@@ -27,15 +27,16 @@ function plotMarginHistogram(ax, series, opts)
                                                 %   (outage is shown by the availability plot)
         [~, q, cnt] = distanceBinStats(s.dist_m, m, edges, @(v) prctile(v, pct));
         q(cnt < min_n, :) = NaN;
-        hMed = plot(ax, centers, q(:,2), '-', 'LineWidth', 1.6, 'DisplayName', s.label);
+        hMed = plot(ax, centers, q(:,2), '-', 'LineWidth', 3, 'DisplayName', s.label);
         col  = get(hMed, 'Color');
-        plot(ax, centers, q(:,1), '--', 'Color', col, 'HandleVisibility', 'off');
-        plot(ax, centers, q(:,3), '--', 'Color', col, 'HandleVisibility', 'off');
+        plot(ax, centers, q(:,1), '--', 'Color', col, 'LineWidth', 3, 'HandleVisibility', 'off');
+        plot(ax, centers, q(:,3), '--', 'Color', col, 'LineWidth', 3, 'HandleVisibility', 'off');
     end
     yline(ax, 0, ':k', 'required SNR', 'HandleVisibility', 'off');
-    xlabel(ax, 'distance from centre (m)');
-    ylabel(ax, 'margin above required SNR (dB)');
+    xlabel(ax, 'distance from centre (m)', 'FontSize', 25, 'FontWeight', 'bold');
+    ylabel(ax, 'margin above required SNR (dB)', 'FontSize', 25, 'FontWeight', 'bold');
     grid(ax, 'on');
-    legend(ax, 'show', 'Location', 'best');
-    title(ax, sprintf('Margin (median + %g/%g pct) vs distance', pct(1), pct(end)));
+    legend(ax, 'show', 'Location', 'best', 'Interpreter', 'none');
+    title(ax, sprintf('Margin (median + %g/%g pct) vs distance', pct(1), pct(end)), ...
+        'FontSize', 36, 'FontWeight', 'bold', 'Interpreter', 'none');
 end

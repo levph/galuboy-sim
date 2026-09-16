@@ -4,8 +4,9 @@ function config = buildConfigB()
 %   config = buildConfigB()
 %
 %   Part B (R2021b+) turns Part A's raw path loss + steering angles into SNR and
-%   p% availability per device, per LINK TYPE. There are 4 link types (direction
-%   x ground device); each side's antenna gain is read from an azimuth-
+%   p% availability per device, per LINK TYPE. There are 6 link types (direction
+%   x ground device, plus a reduced-power infantry variant); each side's
+%   antenna gain is read from an azimuth-
 %   independent pattern at the matching stored steering angle:
 %     - air-side antenna  <- steer_air  (off the outward-tilted nadir boresight)
 %     - ground-side antenna <- steer_gnd (off zenith)
@@ -19,9 +20,18 @@ function config = buildConfigB()
 %   Then per device: pSNR = prctile(SNR, 100-percentile); available = pSNR >=
 %   req_snr(link); margin = pSNR - req_snr.
 %
-%   MANY VALUES BELOW ARE PLACEHOLDERS ("given" inputs to be supplied / driven
-%   by MCS): tx powers, losses, noise figures, per-link BW / papr_backoff /
-%   req_snr, and the antenna pattern files. The structure / math is final.
+%   Each link picks an MCS (by index, 1-11) and a finger count instead of
+%   entering BW / IBO(PAPR backoff) / required-SNR directly:
+%     - IBO and required-SNR come from the MCS lookup table for the link's
+%       DIRECTION (config.mcs_book, sheet 'DL' or 'UL') - same across ground
+%       device types (infantry/vehicular), different across DL/UL.
+%     - BW and rate scale with finger count off a per-direction organic
+%       (1-finger) baseline: BW(link) = fingers * bw_per_finger_hz(dir);
+%       rate(link) = fingers * rate_1finger(mcs, dir). See resolveLinkParams.
+%
+%   MANY VALUES BELOW ARE PLACEHOLDERS ("given" inputs, made up pending real
+%   figures): tx powers, losses, noise figures, per-finger BW, the MCS table,
+%   and the antenna pattern files. The structure / math is final.
 
     config = struct();
 
@@ -35,9 +45,10 @@ function config = buildConfigB()
     config.const.mmse_loss_db        = 2.0;    % GIVEN
 
     % ---- Per-device raw TX antenna power (dBm) ---------------------------
-    config.tx_power_dbm.air       = 40;        % GIVEN (placeholder)
-    config.tx_power_dbm.infantry  = 30;
-    config.tx_power_dbm.vehicular = 33;
+    config.tx_power_dbm.air              = 40;   % GIVEN (placeholder)
+    config.tx_power_dbm.infantry         = 30;
+    config.tx_power_dbm.vehicular        = 33;
+    config.tx_power_dbm.infantry_reduced = 23;   % GIVEN (placeholder, -7 dB vs infantry)
 
     % ---- Per-device receiver noise figure (dB) --------------------------
     config.noise_figure_db.air       = 3.0;    % GIVEN (placeholder)
@@ -47,22 +58,43 @@ function config = buildConfigB()
     % ---- Antenna patterns: ONE workbook, one column per antenna ---------
     %   resources/antennas/antenna_patterns.xlsx
     %   col 1 = Angle (deg off boresight, 0=boresight); other cols = antennas
-    %   (header = name). Links pick antennas by COLUMN INDEX (1-based among the
-    %   antenna columns). Example column order:
-    %     1 air_tx | 2 air_rx | 3 infantry_tx | 4 infantry_rx
-    %     5 vehicular_tx | 6 vehicular_rx
+    %   (header = name). Links pick antennas by NAME (the column header),
+    %   resolved to a column index by resolveLinkParams. Committed columns:
+    %     air_tx | air_rx | infantry_tx | infantry_rx | vehicular_tx | vehicular_rx
     config.antenna_book = fullfile('resources','antennas','antenna_patterns.xlsx');
 
-    % ---- Link definitions (4) -------------------------------------------
-    % fields: name, dir, ground, tx_dev, rx_dev, tx_ant_idx, rx_ant_idx,
-    %         tx_side('air'|'gnd'), rx_side, bw_hz, papr_db, req_snr_db
-    % antenna indices reference columns of the workbook above; bw_hz / papr_db /
-    % req_snr_db are GIVEN per link (MCS/BW driven) - placeholders.
+    % ---- MCS lookup table: one workbook, sheet 'DL' + sheet 'UL' --------
+    %   resources/mcs/mcs_tables.xlsx (see resources/README.md).
+    %   Columns: mcs_index, mcs, ibo_db, req_snr_db, rate_1finger_mbps.
+    %   Same MCS table across ground device types; separate sheet per direction.
+    config.mcs_book = fullfile('resources','mcs','mcs_tables.xlsx');
+
+    % ---- Organic (1-finger) bandwidth per direction (Hz) -----------------
+    %   BW(link) = fingers(link) * bw_per_finger_hz.(link.dir). GIVEN - placeholder.
+    config.finger.bw_per_finger_hz.DL = 10e6;
+    config.finger.bw_per_finger_hz.UL = 5e6;
+
+    % ---- Link definitions (6) -------------------------------------------
+    % fields: name, dir, ground, tx_dev, rx_dev, tx_ant, rx_ant,
+    %         tx_side('air'|'gnd'), rx_side, mcs_index(1-11), fingers
+    % tx_ant/rx_ant are antenna NAMES (workbook column headers). mcs_index +
+    % fingers select IBO/req_snr/BW/rate via resolveLinkParams (config.mcs_book,
+    % config.finger). fingers are GIVEN per link (placeholder: infantry=1,
+    % vehicular=2, i.e. vehicular gets double the organic BW/rate).
+    %
+    % The two *_infantry_reduced links model a weaker infantry radio: same
+    % ground='infantry' (reuses the regular infantry RX samples from Part A),
+    % same mcs_index/fingers as the corresponding infantry link, but UL
+    % transmits at the reduced infantry_reduced TX power instead of infantry's.
+    % Antennas default to the same names as the regular infantry links; pick
+    % the actual reduced antenna per-link in the galuboyAnalysisApp UI.
     config.links = [ ...
-        mkLink('DL_infantry','DL','infantry','air','infantry', 1, 4,'air','gnd', 10e6, 8, 5); ...
-        mkLink('DL_vehicular','DL','vehicular','air','vehicular', 1, 6,'air','gnd', 20e6, 8, 5); ...
-        mkLink('UL_infantry','UL','infantry','infantry','air', 3, 2,'gnd','air', 5e6, 6, 3); ...
-        mkLink('UL_vehicular','UL','vehicular','vehicular','air', 5, 2,'gnd','air', 10e6, 6, 3) ];
+        mkLink('DL_infantry','DL','infantry','air','infantry', 'air_tx','infantry_rx','air','gnd', 6, 1); ...
+        mkLink('DL_vehicular','DL','vehicular','air','vehicular', 'air_tx','vehicular_rx','air','gnd', 8, 2); ...
+        mkLink('DL_infantry_reduced','DL','infantry','air','infantry', 'air_tx','infantry_rx','air','gnd', 6, 1); ...
+        mkLink('UL_infantry','UL','infantry','infantry','air', 'infantry_tx','air_rx','gnd','air', 4, 1); ...
+        mkLink('UL_vehicular','UL','vehicular','vehicular','air', 'vehicular_tx','air_rx','gnd','air', 6, 2); ...
+        mkLink('UL_infantry_reduced','UL','infantry','infantry_reduced','air', 'infantry_tx','air_rx','gnd','air', 4, 1) ];
 
     % ---- Plotting -------------------------------------------------------
     config.plot.dist_bin_m       = 100;  % availability / margin histogram bin (m)
@@ -72,9 +104,9 @@ function config = buildConfigB()
 end
 
 % -------------------------------------------------------------------------
-function L = mkLink(name, dir, ground, tx_dev, rx_dev, tx_ant_idx, rx_ant_idx, tx_side, rx_side, bw_hz, papr_db, req_snr_db)
+function L = mkLink(name, dir, ground, tx_dev, rx_dev, tx_ant, rx_ant, tx_side, rx_side, mcs_index, fingers)
     L = struct('name',name,'dir',dir,'ground',ground, ...
-               'tx_dev',tx_dev,'rx_dev',rx_dev,'tx_ant_idx',tx_ant_idx,'rx_ant_idx',rx_ant_idx, ...
+               'tx_dev',tx_dev,'rx_dev',rx_dev,'tx_ant',tx_ant,'rx_ant',rx_ant, ...
                'tx_side',tx_side,'rx_side',rx_side, ...
-               'bw_hz',bw_hz,'papr_db',papr_db,'req_snr_db',req_snr_db);
+               'mcs_index',mcs_index,'fingers',fingers);
 end

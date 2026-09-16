@@ -19,11 +19,11 @@ function plotAvailabilityCCDF(ax, series, ~)
         sufsum = flipud(cumsum(flipud(av)));     % sum(av(i:n))
         cnt    = (n:-1:1).';
         rc     = sufsum ./ cnt;                  % mean(av(i:n))
-        plot(ax, d, 100*rc, 'LineWidth', 1.5, 'DisplayName', s.label);
+        plot(ax, d, 100*rc, 'LineWidth', 3, 'DisplayName', s.label);
     end
-    xlabel(ax, 'range d (m)');
-    ylabel(ax, 'availability for devices at range \geq d (%)');
+    xlabel(ax, 'range d (m)', 'FontSize', 25, 'FontWeight', 'bold');
+    ylabel(ax, 'availability for devices at range \geq d (%)', 'FontSize', 25, 'FontWeight', 'bold');
     ylim(ax, [0 101]); grid(ax, 'on');
-    legend(ax, 'show', 'Location', 'best');
-    title(ax, 'Availability CCDF vs distance');
+    legend(ax, 'show', 'Location', 'best', 'Interpreter', 'none');
+    title(ax, 'Availability CCDF vs distance', 'FontSize', 36, 'FontWeight', 'bold', 'Interpreter', 'none');
 end

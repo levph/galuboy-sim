@@ -2,8 +2,7 @@ classdef test_buildConfigA_schema < matlab.unittest.TestCase
 %TEST_BUILDCONFIGA_SCHEMA  Validate the Part A (raytracing) config overrides.
 %
 %   buildConfigA() starts from buildConfig() and overrides only the Part A
-%   fields. This checks those overrides took, the base schema is intact, and
-%   the placeholder MCS table is well formed.
+%   fields. This checks those overrides took and the base schema is intact.
 
     methods (Test)
 
@@ -80,15 +79,6 @@ classdef test_buildConfigA_schema < matlab.unittest.TestCase
             cfg = buildConfigA();
             tc.verifyTrue(isfield(cfg.io, 'buildings_dir'));
             tc.verifyTrue(isfield(cfg.io, 'terrain_dir'));
-        end
-
-        function mcsTableWellFormed(tc)
-            T = mcsTable();
-            tc.verifyTrue(istable(T));
-            tc.verifyTrue(all(ismember({'mcs','name','snr_min_db'}, T.Properties.VariableNames)));
-            tc.verifyGreaterThan(height(T), 0);
-            % thresholds strictly increasing with MCS
-            tc.verifyTrue(all(diff(T.snr_min_db) > 0));
         end
 
     end

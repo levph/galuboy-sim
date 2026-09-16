@@ -33,15 +33,21 @@ function figs = plotPartB(R, cfg)
         if isempty(links), continue; end
         for gi = 1:size(graphs,1)
             fn = graphs{gi,2};
-            f  = figure('Name', sprintf('%s — %s', d, graphs{gi,1}), 'Color', 'w');
-            t  = tiledlayout(f, 1, numel(links), 'TileSpacing','compact','Padding','compact');
+            f  = figure('Name', sprintf('%s — %s', d, graphs{gi,1}), 'Color', 'w', ...
+                'Position', [50 50 1400*numel(links) 1050]);
+            t  = tiledlayout(f, 1, numel(links), 'TileSpacing','loose','Padding','loose');
             for li = 1:numel(links)
                 ax  = nexttile(t);
                 sub = S(strcmp({S.link}, links{li}));    % the terrain series for this link
                 fn(ax, sub, opts);
-                title(ax, links{li});                    % per-tile = link type
+                % per-tile = link type + MCS/fingers (fixed within a tile; the
+                % achieved rate varies with terrain-independent inputs only, so
+                % it's on the legend instead - see buildSeries).
+                title(ax, sprintf('%s | MCS %s, %d fingers', links{li}, sub(1).mcs_name, sub(1).fingers), ...
+                    'FontSize', 36, 'FontWeight', 'bold', 'Interpreter', 'none');
             end
-            title(t, sprintf('%s — %s', d, graphs{gi,1}));
+            title(t, sprintf('%s — %s', d, graphs{gi,1}), ...
+                'FontSize', 36, 'FontWeight', 'bold', 'Interpreter', 'none');
             figs(end+1) = f; %#ok<AGROW>
         end
     end
