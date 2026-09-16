@@ -51,9 +51,10 @@ function config = buildConfigB()
     config.tx_power_dbm.infantry_reduced = 23;   % GIVEN (placeholder, -7 dB vs infantry)
 
     % ---- Per-device receiver noise figure (dB) --------------------------
-    config.noise_figure_db.air       = 3.0;    % GIVEN (placeholder)
-    config.noise_figure_db.infantry  = 5.0;
-    config.noise_figure_db.vehicular = 4.0;
+    config.noise_figure_db.air              = 3.0;   % GIVEN (placeholder)
+    config.noise_figure_db.infantry         = 5.0;
+    config.noise_figure_db.vehicular        = 4.0;
+    config.noise_figure_db.infantry_reduced = 5.0;    % same as infantry (no NF change specified)
 
     % ---- Antenna patterns: ONE workbook, one column per antenna ---------
     %   resources/antennas/antenna_patterns.xlsx
