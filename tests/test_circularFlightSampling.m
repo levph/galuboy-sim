@@ -53,5 +53,23 @@ classdef test_circularFlightSampling < matlab.unittest.TestCase
             tc.verifyGreaterThan(s2.v_mps, s1.v_mps);     % v ~ sqrt(R)
         end
 
+        function tilt90Errors(tc)
+            tc.verifyError(@() circularFlightSampling( ...
+                test_circularFlightSampling.cfg('max_tilt_deg', 90)), ...
+                'circularFlightSampling:tiltRange');
+        end
+
+        function tiltZeroErrors(tc)
+            tc.verifyError(@() circularFlightSampling( ...
+                test_circularFlightSampling.cfg('max_tilt_deg', 0)), ...
+                'circularFlightSampling:tiltRange');
+        end
+
+        function tiltNegativeErrors(tc)
+            tc.verifyError(@() circularFlightSampling( ...
+                test_circularFlightSampling.cfg('max_tilt_deg', -5)), ...
+                'circularFlightSampling:tiltRange');
+        end
+
     end
 end

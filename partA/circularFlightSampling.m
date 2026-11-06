@@ -28,6 +28,10 @@ function s = circularFlightSampling(flight_cfg)
 %     sample_angles_rad (1 x num_samples), dt_effective_s
 
     g   = 9.81;                              % m/s^2
+    if flight_cfg.max_tilt_deg <= 0 || flight_cfg.max_tilt_deg >= 90
+        error('circularFlightSampling:tiltRange', ...
+            'max_tilt_deg must be in (0, 90), got %g.', flight_cfg.max_tilt_deg);
+    end
     phi = deg2rad(flight_cfg.max_tilt_deg);
     R   = flight_cfg.circle_radius_m;
 

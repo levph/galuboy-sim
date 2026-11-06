@@ -60,6 +60,10 @@ end
 function M = parseArrays(strs)
 %PARSEARRAYS  n x 1 comma-joined strings -> [n x Nf] numeric (Inf preserved).
     n  = numel(strs);
+    if n == 0
+        M = zeros(0, 0);
+        return;
+    end
     Nf = numel(split(strs(1), ","));
     M  = zeros(n, Nf);
     for i = 1:n
